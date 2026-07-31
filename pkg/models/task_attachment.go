@@ -37,11 +37,37 @@ import (
 	"xorm.io/xorm"
 )
 
+// Modified by mia·nube on 2026-07-31: an attachment may now be a *reference* to a
+// file held in an external system instead of a blob stored by Vikunja. See the
+// LinkProvider comment on the struct below.
+
 // TaskAttachment is the definition of a task attachment
 type TaskAttachment struct {
 	ID     int64 `xorm:"bigint autoincr not null unique pk" json:"id" param:"attachment" readOnly:"true" doc:"The unique, numeric id of this attachment."`
 	TaskID int64 `xorm:"bigint not null" json:"task_id" param:"task" readOnly:"true" doc:"The id of the task this attachment belongs to. Taken from the URL, not the body."`
-	FileID int64 `xorm:"bigint not null" json:"-"`
+	// FileID is zero for link attachments, which have no stored blob. It is
+	// nullable in the database for the same reason.
+	FileID int64 `xorm:"bigint null" json:"-"`
+
+	// LinkProvider names the external system holding the referenced file, and is
+	// empty for ordinary uploaded attachments. It is the discriminator: a row with
+	// a non-empty LinkProvider is a *reference*, carries no bytes of its own, and
+	// resolves through that provider at download time rather than from Vikunja's
+	// file store.
+	//
+	// LinkRef is the provider's own stable identifier for the file. It is opaque to
+	// Vikunja, which never parses it and never contacts the provider itself.
+	//
+	// LinkName / LinkSize / LinkMime are a *cache* of the file's metadata as it was
+	// at the moment the link was created, kept only so the attachment list can be
+	// rendered without a round trip per row. They are not authoritative: the
+	// external system may have renamed, replaced or removed the file since. The
+	// bytes and the current name always come from resolving LinkRef.
+	LinkProvider string `xorm:"varchar(50) null index" json:"link_provider,omitempty" readOnly:"true" doc:"The external system holding this file, if this attachment is a reference rather than an uploaded file. Empty for uploaded attachments."`
+	LinkRef      string `xorm:"text null" json:"link_ref,omitempty" readOnly:"true" doc:"The external system's stable identifier for the referenced file. Empty for uploaded attachments."`
+	LinkName     string `xorm:"text null" json:"-"`
+	LinkSize     int64  `xorm:"bigint null" json:"-"`
+	LinkMime     string `xorm:"varchar(255) null" json:"-"`
 
 	CreatedByID int64      `xorm:"bigint not null" json:"-"`
 	CreatedBy   *user.User `xorm:"-" json:"created_by" readOnly:"true" doc:"The user who uploaded this attachment."`
@@ -52,6 +78,41 @@ type TaskAttachment struct {
 
 	web.CRUDable    `xorm:"-" json:"-"`
 	web.Permissions `xorm:"-" json:"-"`
+}
+
+// IsLink reports whether this attachment references a file in an external system
+// rather than a blob stored by Vikunja.
+//
+// Every code path that would otherwise reach for FileID or File must ask this
+// first: a link row has neither, and treating one as an upload is how a link
+// attachment turns into a 500 or, worse, a silently empty download.
+func (ta *TaskAttachment) IsLink() bool {
+	return ta.LinkProvider != ""
+}
+
+// hydrateLinkFile fills File from the cached link metadata for link rows, and
+// reports whether it did.
+//
+// Every API client — the SPA, CalDAV, the v1 and v2 list handlers — reads name,
+// size and mime off File and would otherwise render a link attachment as a blank
+// row or dereference a nil pointer. Populating the same shape they already
+// understand is what makes a link attachment list correctly *everywhere* without
+// each client learning about links, and it is why this lives in one helper rather
+// than being repeated at each of the three places attachments get loaded.
+//
+// The synthesised File deliberately has no ID: there is no row in the files table
+// and there must never appear to be one.
+func (ta *TaskAttachment) hydrateLinkFile() bool {
+	if !ta.IsLink() {
+		return false
+	}
+	ta.File = &files.File{
+		Name:    ta.LinkName,
+		Mime:    ta.LinkMime,
+		Size:    uint64(ta.LinkSize),
+		Created: ta.Created,
+	}
+	return true
 }
 
 // TableName returns the table name for task attachments
@@ -196,11 +257,14 @@ func (ta *TaskAttachment) ReadOne(s *xorm.Session, _ web.Auth) (err error) {
 		}
 	}
 
-	// Get the file
-	ta.File = &files.File{ID: ta.FileID}
-	err = ta.File.LoadFileMetaByID()
-	if err != nil {
-		return
+	// Get the file. A link attachment has no stored file; its metadata comes from
+	// the cached link columns instead.
+	if !ta.hydrateLinkFile() {
+		ta.File = &files.File{ID: ta.FileID}
+		err = ta.File.LoadFileMetaByID()
+		if err != nil {
+			return
+		}
 	}
 
 	// Swallow missing/disabled/locked so the user-delete cascade can complete.
@@ -276,6 +340,10 @@ func (ta *TaskAttachment) ReadAll(s *xorm.Session, a web.Auth, _ string, page in
 	for _, r := range attachments {
 		if createdBy, has := users[r.CreatedByID]; has {
 			r.CreatedBy = createdBy
+		}
+
+		if r.hydrateLinkFile() {
+			continue
 		}
 
 		// If the actual file does not exist, don't try to load it as that would fail with nil panic
@@ -429,14 +497,21 @@ func (ta *TaskAttachment) Delete(s *xorm.Session, a web.Auth) error {
 		return err
 	}
 
-	// Delete the underlying file
-	err = ta.File.Delete(s)
-	// If the file does not exist, we don't want to error out
-	if err != nil && files.IsErrFileDoesNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
+	// Delete the underlying file. A link attachment owns no file: detaching it
+	// removes the reference only, and must never reach into the files table — the
+	// synthesised File carries ID 0, so deleting it here would be, at best, a
+	// no-op against a row that is not ours and, at worst, destructive.
+	// Removing the file in the external system is that system's business, not
+	// Vikunja's.
+	if !ta.IsLink() {
+		err = ta.File.Delete(s)
+		// If the file does not exist, we don't want to error out
+		if err != nil && files.IsErrFileDoesNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
 	}
 
 	doer, _ := user.GetFromAuth(a)
@@ -493,6 +568,9 @@ func getTaskAttachmentsByTaskIDs(s *xorm.Session, taskIDs []int64) (attachments 
 	for _, a := range attachments {
 		if createdBy, has := users[a.CreatedByID]; has {
 			a.CreatedBy = createdBy
+		}
+		if a.hydrateLinkFile() {
+			continue
 		}
 		a.File = fs[a.FileID]
 	}

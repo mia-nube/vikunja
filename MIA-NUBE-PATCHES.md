@@ -62,6 +62,7 @@ quietly fails to come across is otherwise invisible until something breaks.
 
 | # | files | what it does | why |
 | --- | --- | --- | --- |
+| 2 | `pkg/models/task_attachment.go`, `pkg/migration/20260731120000.go` | Adds *link attachments*: an attachment row may reference a file in an external system (`link_provider` + `link_ref`, plus cached name/size/mime) instead of owning a stored blob. `file_id` becomes nullable. | An attachment that is a live reference rather than a copy stays current when the original changes, and never duplicates the file or its access rules. Kept deliberately provider-agnostic and upstream-shaped: nothing in this patch names a particular external system. |
 | 1 | `Dockerfile` | Removes the BuildKit-only constructs: `FROM --platform=$BUILDPLATFORM` on both builder stages, the implicit `TARGETOS`/`TARGETARCH`/`TARGETVARIANT` args (now defaulted), `COPY --chmod=`, and the `# syntax=` parser directive. | Upstream's Dockerfile can only be built by BuildKit. The CI runner that builds our image offers no usable BuildKit backend and forbids privileged containers, so without this patch the image cannot be built at all. The resulting image is unchanged, and building under BuildKit still works. |
 
 ## Rebasing onto a new upstream release
