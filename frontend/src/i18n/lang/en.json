@@ -1078,6 +1078,7 @@
       "attachFrom": "Attach from {provider}",
       "linkPickerTitle": "Choose a file from {provider}",
       "linkCreating": "Attaching the file…",
+      "linkPickerLoading": "Loading the file picker…",
       "linkAttached": "The file is now linked to this task.",
       "linkUnavailable": "This link cannot be opened: its provider is not configured on this server.",
       "drop": "Drop files here to upload",

@@ -1051,6 +1051,7 @@
 			"attachFrom": "Aus {provider} anhängen",
 			"linkPickerTitle": "Datei aus {provider} auswählen",
 			"linkCreating": "Datei wird angehängt …",
+			"linkPickerLoading": "Dateiauswahl wird geladen …",
 			"linkAttached": "Die Datei ist jetzt mit der Aufgabe verknüpft.",
 			"linkUnavailable": "Diese Verknüpfung lässt sich nicht öffnen: Der Dienst ist auf diesem Server nicht eingerichtet.",
 			"drop": "Ziehe Dateien hierher, um sie hochzuladen",
