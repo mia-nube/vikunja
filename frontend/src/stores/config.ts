@@ -6,6 +6,7 @@ import {HTTPFactory} from '@/helpers/fetcher'
 import {objectToCamelCase} from '@/helpers/case'
 
 import type {IProvider} from '@/types/IProvider'
+import type {ILinkAttachmentProvider} from '@/types/ILinkAttachmentProvider'
 import type {MIGRATORS} from '@/views/migrate/migrators'
 import type {ProFeature} from '@/constants/proFeatures'
 import {InvalidApiUrlProvidedError} from '@/helpers/checkAndSetApiUrl'
@@ -48,6 +49,10 @@ export interface ConfigState {
 	allowIconChanges: boolean,
 	enabledProFeatures: string[],
 	concurrentWrites: boolean,
+	// Modified by mia·nube on 2026-08-03: the external systems a task attachment
+	// may reference instead of storing. Server-configured, so the client learns
+	// them from /info rather than carrying deployment detail in its bundle.
+	linkAttachmentProviders: ILinkAttachmentProvider[],
 }
 
 export const useConfigStore = defineStore('config', () => {
@@ -90,6 +95,7 @@ export const useConfigStore = defineStore('config', () => {
 		allowIconChanges: true,
 		enabledProFeatures: [],
 		concurrentWrites: false,
+		linkAttachmentProviders: [],
 	})
 
 	const migratorsEnabled = computed(() => state.availableMigrators?.length > 0)

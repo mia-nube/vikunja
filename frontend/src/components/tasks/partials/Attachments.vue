@@ -39,7 +39,20 @@
 						aria-hidden="true"
 						@click="viewOrDownload(a)"
 					>
+						<!--
+							Modified by mia·nube on 2026-08-03: a link has no bytes here, so
+							there is nothing to preview. It gets an icon instead — deliberately
+							not a thumbnail fetched from the provider, which would make the task
+							view leak who is looking at what to that system.
+						-->
+						<span
+							v-if="isLink(a)"
+							class="icon is-large link-attachment-icon"
+						>
+							<Icon icon="link" />
+						</span>
 						<FilePreview
+							v-else
 							class="attachment-preview"
 							:model-value="a"
 						/>
@@ -57,6 +70,12 @@
 								class="is-task-cover"
 							>
 								{{ $t('task.attachment.usedAsCover') }}
+							</span>
+							<span
+								v-if="isLink(a)"
+								class="is-link-attachment"
+							>
+								{{ providerName(a) }}
 							</span>
 						</span>
 					</button>
@@ -137,6 +156,33 @@
 			{{ $t('task.attachment.upload') }}
 		</XButton>
 
+		<!--
+			Modified by mia·nube on 2026-08-03: one action per configured external
+			system. Nothing renders when none is configured, so an instance without
+			them looks exactly as it did before.
+		-->
+		<template v-if="editEnabled">
+			<XButton
+				v-for="provider in linkAttachmentProviders"
+				:key="provider.key"
+				:disabled="loading"
+				class="mbe-4 mis-2"
+				icon="link"
+				variant="secondary"
+				:shadow="false"
+				@click="openPicker(provider)"
+			>
+				{{ $t('task.attachment.attachFrom', {provider: provider.name}) }}
+			</XButton>
+		</template>
+
+		<LinkAttachmentPicker
+			v-if="pickerProvider !== null"
+			:provider="pickerProvider"
+			@close="pickerProvider = null"
+			@select="attachLink"
+		/>
+
 		<!-- Dropzone -->
 		<Teleport :to="dropzoneTeleportTarget">
 			<div
@@ -208,7 +254,10 @@ import ProgressBar from '@/components/misc/ProgressBar.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 
 import AttachmentService from '@/services/attachment'
-import {canPreviewImage, canPreviewPdf} from '@/models/attachment'
+import {canPreviewImage, canPreviewPdf, isLink} from '@/models/attachment'
+import LinkAttachmentPicker from '@/components/tasks/partials/LinkAttachmentPicker.vue'
+import {useConfigStore} from '@/stores/config'
+import type {ILinkAttachmentProvider} from '@/types/ILinkAttachmentProvider'
 import type {IAttachment} from '@/modelTypes/IAttachment'
 import type {ITask} from '@/modelTypes/ITask'
 
@@ -372,6 +421,13 @@ watch(() => props.editEnabled, enabled => {
 })
 
 function downloadAttachment(attachment: IAttachment) {
+	// A link has nothing to download from here; opening it at the provider is the
+	// equivalent action, and routing it through the same entry point means the
+	// download button cannot end up fetching an empty blob.
+	if (isLink(attachment)) {
+		openLink(attachment)
+		return
+	}
 	attachmentService.download(attachment)
 }
 
@@ -424,6 +480,10 @@ const attachmentImageBlobUrl = ref<string | null>(null)
 const attachmentPdfBlobUrl = ref<string | null>(null)
 
 async function viewOrDownload(attachment: IAttachment) {
+	if (isLink(attachment)) {
+		openLink(attachment)
+		return
+	}
 	if (canPreviewImage(attachment)) {
 		attachmentImageBlobUrl.value = await attachmentService.getBlobUrl(attachment)
 	} else if (canPreviewPdf(attachment)) {
@@ -431,6 +491,69 @@ async function viewOrDownload(attachment: IAttachment) {
 	} else {
 		downloadAttachment(attachment)
 	}
+}
+
+// Modified by mia·nube on 2026-08-03: attaching a file that lives in an external
+// system, as a reference rather than a copy.
+
+const configStore = useConfigStore()
+const linkAttachmentProviders = computed(() => configStore.linkAttachmentProviders ?? [])
+
+const pickerProvider = ref<ILinkAttachmentProvider | null>(null)
+
+// Falls back to the stored key when the provider is no longer configured, so the
+// row still says where the file lives rather than going blank.
+function providerName(attachment: IAttachment): string {
+	return linkAttachmentProviders.value
+		.find(p => p.key === attachment.linkProvider)?.name
+		?? attachment.linkProvider
+}
+
+function openPicker(provider: ILinkAttachmentProvider) {
+	pickerProvider.value = provider
+}
+
+/**
+ * Turns the file the user picked in the provider's own picker into an
+ * attachment. The picker's message is only a claim about what was selected; the
+ * attachment itself is created with the user's Vikunja credentials, so the
+ * server applies the same write permission an upload needs and the picker grants
+ * nothing on its own.
+ */
+async function attachLink(selection: {ref: string, name: string, size: number, mime: string}) {
+	const provider = pickerProvider.value
+	if (provider === null) {
+		return
+	}
+
+	try {
+		const created = await attachmentService.createLink(props.task.id, {
+			provider: provider.key,
+			ref: selection.ref,
+			name: selection.name,
+			size: selection.size,
+			mime: selection.mime,
+		})
+		emit('update:attachments', [...attachments.value, created])
+		success({message: t('task.attachment.linkAttached')})
+	} catch (e) {
+		error(e)
+	} finally {
+		pickerProvider.value = null
+	}
+}
+
+/**
+ * A link attachment has no bytes here to fetch. It is opened at its provider in
+ * a new tab, so the request arrives there as the user's own — which is what lets
+ * the provider apply that user's permissions to it.
+ */
+function openLink(attachment: IAttachment) {
+	if (!attachment.linkUrl) {
+		error(new Error(t('task.attachment.linkUnavailable')))
+		return
+	}
+	window.open(attachment.linkUrl, '_blank', 'noopener,noreferrer')
 }
 
 const copy = useCopyToClipboard()
@@ -663,6 +786,26 @@ defineExpose({
 	border: none;
 	margin: 0 auto;
 	display: block;
+}
+
+.link-attachment-icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	inline-size: 100%;
+	block-size: 100%;
+	font-size: 2rem;
+	color: var(--grey-400);
+}
+
+.is-link-attachment {
+	background: var(--grey-200);
+	color: var(--grey-700);
+	margin-inline-start: .25rem;
+	padding: .25rem .35rem;
+	border-radius: 4px;
+	font-size: .75rem;
+	font-weight: normal;
 }
 
 .is-task-cover {

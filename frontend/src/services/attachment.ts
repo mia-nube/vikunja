@@ -4,6 +4,7 @@ import AttachmentModel from '../models/attachment'
 import type { IAttachment } from '@/modelTypes/IAttachment'
 
 import {downloadBlob} from '@/helpers/downloadBlob'
+import {objectToCamelCase} from '@/helpers/case'
 
 export enum PREVIEW_SIZE {
 	SM = 'sm',
@@ -51,6 +52,36 @@ export default class AttachmentService extends AbstractService<IAttachment> {
 		}
 
 		return AbstractService.prototype.getBlobUrl.call(this, mainUrl)
+	}
+
+	/**
+	 * Modified by mia·nube on 2026-08-03.
+	 *
+	 * Attaches a file held by an external system as a reference rather than
+	 * uploading a copy of it. The request carries the user's own Vikunja
+	 * credentials like every other call from this service, so the server applies
+	 * the same write permission an upload needs — the picker that produced the
+	 * selection grants nothing on its own.
+	 */
+	async createLink(taskId: number, link: {
+		provider: string,
+		ref: string,
+		name: string,
+		size: number,
+		mime: string,
+	}): Promise<IAttachment> {
+		// Spelled out rather than run through objectToSnakeCase: this service
+		// disables the create interceptor (see useCreateInterceptor above), so a
+		// camelCase body would reach the API unconverted and silently arrive as an
+		// empty reference.
+		const response = await this.http.put(`/tasks/${taskId}/attachments/link`, {
+			link_provider: link.provider,
+			link_ref: link.ref,
+			link_name: link.name,
+			link_size: link.size,
+			link_mime: link.mime,
+		})
+		return this.modelFactory(objectToCamelCase(response.data))
 	}
 
 	async download(model: IAttachment) {
