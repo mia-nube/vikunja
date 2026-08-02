@@ -25,6 +25,7 @@ import (
 	"strconv"
 
 	"code.vikunja.io/api/pkg/models"
+	"code.vikunja.io/api/pkg/modules/linkattachments"
 	"code.vikunja.io/api/pkg/web"
 )
 
@@ -58,6 +59,26 @@ func toAttachmentUploadError(err error) AttachmentUploadError {
 		return AttachmentUploadError{Code: details.Code, Message: details.Message}
 	}
 	return AttachmentUploadError{Message: err.Error()}
+}
+
+// Modified by mia·nube on 2026-08-03: added LinkAttachmentRedirect, so an
+// attachment that references an externally-held file is served by redirecting the
+// caller to that file rather than by streaming bytes Vikunja does not have.
+
+// LinkAttachmentRedirect returns the URL a link attachment resolves to. It is
+// the single place both API versions ask, so the two cannot drift into serving a
+// link differently.
+//
+// It must only be called for an attachment that IsLink. A link whose provider is
+// no longer configured is an error rather than a fallback: there is no file to
+// serve instead, and guessing a different provider would send the user's browser
+// somewhere it was never told to go.
+func LinkAttachmentRedirect(ta *models.TaskAttachment) (string, error) {
+	target, configured := linkattachments.ResolveURLFor(ta.LinkProvider, ta.LinkRef)
+	if !configured {
+		return "", models.ErrUnknownLinkAttachmentProvider{Provider: ta.LinkProvider}
+	}
+	return target, nil
 }
 
 // WriteAttachmentDownload streams the attachment (or its inline image preview) to

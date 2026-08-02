@@ -49,6 +49,19 @@ type taskAttachmentUploadBody struct {
 	Body *webfiles.AttachmentUploadResult
 }
 
+// Modified by mia·nube on 2026-08-03: added the create-link operation, and made
+// the download operation redirect a link attachment to its provider.
+
+type taskAttachmentLinkInput struct {
+	TaskID int64 `path:"task" doc:"The id of the task to attach the referenced file to."`
+	Body   *models.LinkToAttach
+}
+
+type taskAttachmentLinkBody struct {
+	Status int
+	Body   *models.TaskAttachment
+}
+
 // RegisterTaskAttachmentRoutes wires task-attachment list/upload/download/delete onto
 // the Huma API. The whole resource is gated by the service.enabletaskattachments config
 // flag; the check runs here (not at init()) because RegisterAll fires after config loads.
@@ -79,6 +92,16 @@ func RegisterTaskAttachmentRoutes(api huma.API) {
 		// #nosec G115 - configured value won't exceed int64 max in practice.
 		MaxBodyBytes: (int64(config.GetMaxFileSizeInMBytes()) + 2) * 1024 * 1024,
 	}, taskAttachmentsUpload)
+
+	Register(api, huma.Operation{
+		OperationID:   "task-attachments-create-link",
+		Summary:       "Attach a linked file to a task",
+		Description:   "Attaches a reference to a file held by an external system, rather than uploading a copy of it. Requires write access to the task, exactly as uploading does. The provider must be one of those configured on this instance; the reference is stored as given and never interpreted by Vikunja.",
+		Method:        http.MethodPost,
+		Path:          "/tasks/{task}/attachments/link",
+		Tags:          tags,
+		DefaultStatus: http.StatusCreated,
+	}, taskAttachmentsCreateLink)
 
 	Register(api, huma.Operation{
 		OperationID: "task-attachments-download",
@@ -194,10 +217,51 @@ func taskAttachmentsDownload(ctx context.Context, in *struct {
 		return nil, translateDomainError(err)
 	}
 
+	// A link attachment has no bytes here to stream. Redirecting sends the user's
+	// own browser to the provider, which then applies that user's permissions --
+	// Vikunja neither fetches the file nor holds a credential for it.
+	if ta.IsLink() {
+		redirectTo, err := webfiles.LinkAttachmentRedirect(ta)
+		if err != nil {
+			return nil, translateDomainError(err)
+		}
+		return &huma.StreamResponse{Body: func(hctx huma.Context) {
+			c := humaecho.Unwrap(hctx)
+			(*c).Response().Header().Set("Location", redirectTo)
+			(*c).Response().WriteHeader(http.StatusFound)
+		}}, nil
+	}
+
 	return &huma.StreamResponse{Body: func(hctx huma.Context) {
 		c := humaecho.Unwrap(hctx)
 		webfiles.WriteAttachmentDownload((*c).Response(), (*c).Request(), ta, preview)
 	}}, nil
+}
+
+// taskAttachmentsCreateLink owns auth and the session for the same reason the
+// upload handler does: there is no handler.Do* for a create that is not a plain
+// CRUD write of the bound model.
+func taskAttachmentsCreateLink(ctx context.Context, in *taskAttachmentLinkInput) (*taskAttachmentLinkBody, error) {
+	a, err := authFromCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	s := db.NewSession()
+	defer s.Close()
+
+	created, err := models.CreateLinkTaskAttachment(s, a, in.TaskID, in.Body)
+	if err != nil {
+		_ = s.Rollback()
+		return nil, translateDomainError(err)
+	}
+
+	if err := s.Commit(); err != nil {
+		_ = s.Rollback()
+		return nil, translateDomainError(err)
+	}
+
+	return &taskAttachmentLinkBody{Status: http.StatusCreated, Body: created}, nil
 }
 
 func taskAttachmentsDelete(ctx context.Context, in *struct {

@@ -19,6 +19,7 @@ package v1
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"code.vikunja.io/api/pkg/db"
 	"code.vikunja.io/api/pkg/models"
@@ -94,6 +95,62 @@ func UploadTaskAttachment(c *echo.Context) error {
 	return c.JSON(http.StatusOK, webfiles.BuildUploadResult(success, append(openErrors, failures...)))
 }
 
+// Modified by mia·nube on 2026-08-03: added the create-link handler, and made the
+// download handler redirect a link attachment to its provider instead of trying
+// to serve bytes Vikunja does not have.
+
+// CreateLinkTaskAttachment attaches a file held by an external system to a task
+// @Summary Attach a linked file to a task
+// @Description Attaches a reference to a file held by an external system, rather than uploading a copy of it. Requires write access to the task, exactly as uploading does. The provider must be configured on this instance.
+// @tags task
+// @Accept json
+// @Produce json
+// @Param id path int true "Task ID"
+// @Param link body models.LinkToAttach true "The file reference to attach."
+// @Security JWTKeyAuth
+// @Success 201 {object} models.TaskAttachment "The created link attachment."
+// @Failure 400 {object} models.Message "The reference or the provider is missing or unknown."
+// @Failure 403 {object} models.Message "No write access to the task."
+// @Failure 404 {object} models.Message "The task does not exist."
+// @Failure 500 {object} models.Message "Internal error"
+// @Router /tasks/{id}/attachments/link [put]
+func CreateLinkTaskAttachment(c *echo.Context) error {
+
+	taskID, err := strconv.ParseInt(c.Param("task"), 10, 64)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "No task ID provided").Wrap(err)
+	}
+
+	// The body is bound into its own transport struct, never into the attachment
+	// model: binding it into the model would let a client set columns the server
+	// alone may decide — the row id, the timestamps, the creator.
+	link := &models.LinkToAttach{}
+	if err := c.Bind(link); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid link attachment").Wrap(err)
+	}
+
+	auth, err := auth2.GetAuthFromClaims(c)
+	if err != nil {
+		return err
+	}
+
+	s := db.NewSession()
+	defer s.Close()
+
+	created, err := models.CreateLinkTaskAttachment(s, auth, taskID, link)
+	if err != nil {
+		_ = s.Rollback()
+		return err
+	}
+
+	if err := s.Commit(); err != nil {
+		_ = s.Rollback()
+		return err
+	}
+
+	return c.JSON(http.StatusCreated, created)
+}
+
 // GetTaskAttachment returns a task attachment to download for the user
 // @Summary Get one attachment.
 // @Description Get one attachment for download. **Returns json on error.**
@@ -133,6 +190,19 @@ func GetTaskAttachment(c *echo.Context) error {
 	if err := s.Commit(); err != nil {
 		_ = s.Rollback()
 		return err
+	}
+
+	// A link attachment holds no bytes. Vikunja does not fetch them on the user's
+	// behalf either — it sends the user's browser to the provider, so the request
+	// arrives there as that user and is answered under that user's permissions.
+	// Vikunja therefore never needs, and never holds, a credential for the
+	// provider.
+	if attachment.IsLink() {
+		redirectTo, err := webfiles.LinkAttachmentRedirect(attachment)
+		if err != nil {
+			return err
+		}
+		return c.Redirect(http.StatusFound, redirectTo)
 	}
 
 	webfiles.WriteAttachmentDownload(c.Response(), c.Request(), attachment, preview)

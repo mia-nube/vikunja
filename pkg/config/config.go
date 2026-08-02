@@ -83,6 +83,13 @@ const (
 	AuthOpenIDEnabled   Key = `auth.openid.enabled`
 	AuthOpenIDProviders Key = `auth.openid.providers`
 
+	// Modified by mia·nube on 2026-08-03: added the link-attachment provider
+	// registry, so an attachment may reference a file held by an external system.
+	// Every provider — its display name, the picker it embeds and the URL a
+	// reference resolves to — is configuration. Nothing about any particular
+	// external system is compiled in.
+	LinkAttachmentsProviders Key = `linkattachments.providers`
+
 	AuthLdapEnabled    Key = `auth.ldap.enabled`
 	AuthLdapHost       Key = `auth.ldap.host`
 	AuthLdapPort       Key = `auth.ldap.port`

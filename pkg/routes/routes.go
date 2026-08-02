@@ -759,6 +759,11 @@ func registerAPIRoutes(a *echo.Group) {
 		a.GET("/tasks/:task/attachments", taskAttachmentHandler.ReadAllWeb)
 		a.DELETE("/tasks/:task/attachments/:attachment", taskAttachmentHandler.DeleteWeb)
 		a.PUT("/tasks/:task/attachments", apiv1.UploadTaskAttachment)
+		// Modified by mia·nube on 2026-08-03: attaching a file held by an external
+		// system, as a reference rather than an upload. Registered before the
+		// download route on purpose — a static segment must not be shadowed by the
+		// :attachment parameter route.
+		a.PUT("/tasks/:task/attachments/link", apiv1.CreateLinkTaskAttachment)
 		a.GET("/tasks/:task/attachments/:attachment", apiv1.GetTaskAttachment)
 	}
 

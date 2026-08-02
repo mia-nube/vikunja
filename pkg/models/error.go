@@ -1341,6 +1341,65 @@ func (err *ErrNeedsFullRecalculation) HTTPError() web.HTTPError {
 	}
 }
 
+// Modified by mia·nube on 2026-08-03: added the two errors a link attachment can
+// fail with — an unconfigured provider, and a reference that names nothing.
+
+// ErrUnknownLinkAttachmentProvider represents an attempt to link a file from an
+// external system this instance does not have configured.
+type ErrUnknownLinkAttachmentProvider struct {
+	Provider string
+}
+
+// IsErrUnknownLinkAttachmentProvider checks if an error is ErrUnknownLinkAttachmentProvider.
+func IsErrUnknownLinkAttachmentProvider(err error) bool {
+	_, ok := err.(ErrUnknownLinkAttachmentProvider)
+	return ok
+}
+
+func (err ErrUnknownLinkAttachmentProvider) Error() string {
+	return fmt.Sprintf("Link attachment provider is not configured [Provider: %s]", err.Provider)
+}
+
+// ErrCodeUnknownLinkAttachmentProvider holds the unique world-error code of this error
+const ErrCodeUnknownLinkAttachmentProvider = 4029
+
+// HTTPError holds the http error description
+func (err ErrUnknownLinkAttachmentProvider) HTTPError() web.HTTPError {
+	return web.HTTPError{
+		HTTPCode: http.StatusBadRequest,
+		Code:     ErrCodeUnknownLinkAttachmentProvider,
+		Message:  fmt.Sprintf("The link attachment provider '%s' is not configured on this instance.", err.Provider),
+	}
+}
+
+// ErrInvalidLinkAttachment represents a link attachment that cannot be created
+// because the request did not carry the parts a reference needs.
+type ErrInvalidLinkAttachment struct {
+	Reason string
+}
+
+// IsErrInvalidLinkAttachment checks if an error is ErrInvalidLinkAttachment.
+func IsErrInvalidLinkAttachment(err error) bool {
+	_, ok := err.(ErrInvalidLinkAttachment)
+	return ok
+}
+
+func (err ErrInvalidLinkAttachment) Error() string {
+	return fmt.Sprintf("Link attachment is invalid [Reason: %s]", err.Reason)
+}
+
+// ErrCodeInvalidLinkAttachment holds the unique world-error code of this error
+const ErrCodeInvalidLinkAttachment = 4030
+
+// HTTPError holds the http error description
+func (err ErrInvalidLinkAttachment) HTTPError() web.HTTPError {
+	return web.HTTPError{
+		HTTPCode: http.StatusBadRequest,
+		Code:     ErrCodeInvalidLinkAttachment,
+		Message:  fmt.Sprintf("The link attachment is invalid: %s", err.Reason),
+	}
+}
+
 // ============
 // Team errors
 // ============

@@ -21,6 +21,7 @@ import (
 	"code.vikunja.io/api/pkg/license"
 	"code.vikunja.io/api/pkg/log"
 	"code.vikunja.io/api/pkg/modules/auth/openid"
+	"code.vikunja.io/api/pkg/modules/linkattachments"
 	csvmigrator "code.vikunja.io/api/pkg/modules/migration/csv"
 	microsofttodo "code.vikunja.io/api/pkg/modules/migration/microsoft-todo"
 	"code.vikunja.io/api/pkg/modules/migration/ticktick"
@@ -54,6 +55,11 @@ type VikunjaInfos struct {
 	PublicTeamsEnabled         bool              `json:"public_teams_enabled" doc:"Whether public teams are enabled."`
 	AllowIconChanges           bool              `json:"allow_icon_changes" doc:"Whether users may change project icons."`
 	EnabledProFeatures         []license.Feature `json:"enabled_pro_features" doc:"The licensed pro features enabled on this instance."`
+	// Modified by mia·nube on 2026-08-03: LinkAttachmentProviders tells the client
+	// which external systems it may attach files from, and where each one's picker
+	// lives. The client cannot discover this any other way, and hardcoding it there
+	// would put deployment configuration into the bundle.
+	LinkAttachmentProviders []*linkattachments.Provider `json:"link_attachment_providers" doc:"The external systems a task attachment may reference instead of storing. Empty when none are configured."`
 	// ConcurrentWrites reports whether the configured database can handle concurrent writes. It is false on SQLite, where overlapping write transactions deadlock, so clients should serialize batched writes instead of firing them in parallel.
 	ConcurrentWrites bool `json:"concurrent_writes" doc:"Whether the configured database supports concurrent writes. False on SQLite; clients should serialize batched writes when this is false."`
 }
@@ -92,24 +98,25 @@ type LegalInfo struct {
 // both API versions.
 func BuildInfo() VikunjaInfos {
 	info := VikunjaInfos{
-		Version:                version.Version,
-		FrontendURL:            config.ServicePublicURL.GetString(),
-		Motd:                   config.ServiceMotd.GetString(),
-		LinkSharingEnabled:     config.ServiceEnableLinkSharing.GetBool(),
-		MaxFileSize:            config.FilesMaxSize.GetString(),
-		MaxItemsPerPage:        config.ServiceMaxItemsPerPage.GetInt(),
-		TaskAttachmentsEnabled: config.ServiceEnableTaskAttachments.GetBool(),
-		TotpEnabled:            config.ServiceEnableTotp.GetBool(),
-		CaldavEnabled:          config.ServiceEnableCaldav.GetBool(),
-		EmailRemindersEnabled:  config.ServiceEnableEmailReminders.GetBool(),
-		UserDeletionEnabled:    config.ServiceEnableUserDeletion.GetBool(),
-		TaskCommentsEnabled:    config.ServiceEnableTaskComments.GetBool(),
-		DemoModeEnabled:        config.ServiceDemoMode.GetBool(),
-		WebhooksEnabled:        config.WebhooksEnabled.GetBool(),
-		PublicTeamsEnabled:     config.ServiceEnablePublicTeams.GetBool(),
-		AllowIconChanges:       config.ServiceAllowIconChanges.GetBool(),
-		ConcurrentWrites:       config.DatabaseType.GetString() != "sqlite",
-		EnabledProFeatures:     license.EnabledProFeatures(),
+		Version:                 version.Version,
+		FrontendURL:             config.ServicePublicURL.GetString(),
+		Motd:                    config.ServiceMotd.GetString(),
+		LinkSharingEnabled:      config.ServiceEnableLinkSharing.GetBool(),
+		MaxFileSize:             config.FilesMaxSize.GetString(),
+		MaxItemsPerPage:         config.ServiceMaxItemsPerPage.GetInt(),
+		TaskAttachmentsEnabled:  config.ServiceEnableTaskAttachments.GetBool(),
+		TotpEnabled:             config.ServiceEnableTotp.GetBool(),
+		CaldavEnabled:           config.ServiceEnableCaldav.GetBool(),
+		EmailRemindersEnabled:   config.ServiceEnableEmailReminders.GetBool(),
+		UserDeletionEnabled:     config.ServiceEnableUserDeletion.GetBool(),
+		TaskCommentsEnabled:     config.ServiceEnableTaskComments.GetBool(),
+		DemoModeEnabled:         config.ServiceDemoMode.GetBool(),
+		WebhooksEnabled:         config.WebhooksEnabled.GetBool(),
+		PublicTeamsEnabled:      config.ServiceEnablePublicTeams.GetBool(),
+		AllowIconChanges:        config.ServiceAllowIconChanges.GetBool(),
+		ConcurrentWrites:        config.DatabaseType.GetString() != "sqlite",
+		LinkAttachmentProviders: linkattachments.GetAll(),
+		EnabledProFeatures:      license.EnabledProFeatures(),
 		AvailableMigrators: []string{
 			(&vikunja_file.FileMigrator{}).Name(),
 			(&ticktick.Migrator{}).Name(),

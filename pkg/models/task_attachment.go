@@ -30,6 +30,7 @@ import (
 	"code.vikunja.io/api/pkg/files"
 	"code.vikunja.io/api/pkg/log"
 	"code.vikunja.io/api/pkg/modules/keyvalue"
+	"code.vikunja.io/api/pkg/modules/linkattachments"
 	"code.vikunja.io/api/pkg/user"
 	"code.vikunja.io/api/pkg/web"
 
@@ -65,6 +66,12 @@ type TaskAttachment struct {
 	// bytes and the current name always come from resolving LinkRef.
 	LinkProvider string `xorm:"varchar(50) null index" json:"link_provider,omitempty" readOnly:"true" doc:"The external system holding this file, if this attachment is a reference rather than an uploaded file. Empty for uploaded attachments."`
 	LinkRef      string `xorm:"text null" json:"link_ref,omitempty" readOnly:"true" doc:"The external system's stable identifier for the referenced file. Empty for uploaded attachments."`
+	// LinkURL is not stored. It is resolved from this instance's provider
+	// configuration on every read, so a client learns where to open the file
+	// without ever being able to make an attachment point somewhere else, and
+	// moving a provider's address is a configuration change and nothing more —
+	// no stored URL goes stale.
+	LinkURL      string `xorm:"-" json:"link_url,omitempty" readOnly:"true" doc:"Where to open the referenced file. Resolved from this instance's provider configuration on every read. Absent for uploaded attachments."`
 	LinkName     string `xorm:"text null" json:"-"`
 	LinkSize     int64  `xorm:"bigint null" json:"-"`
 	LinkMime     string `xorm:"varchar(255) null" json:"-"`
@@ -105,6 +112,9 @@ func (ta *TaskAttachment) IsLink() bool {
 func (ta *TaskAttachment) hydrateLinkFile() bool {
 	if !ta.IsLink() {
 		return false
+	}
+	if target, configured := linkattachments.ResolveURLFor(ta.LinkProvider, ta.LinkRef); configured {
+		ta.LinkURL = target
 	}
 	ta.File = &files.File{
 		Name:    ta.LinkName,
@@ -201,6 +211,84 @@ func UploadTaskAttachments(s *xorm.Session, a web.Auth, taskID int64, uploads []
 	return success, failures, nil
 }
 
+// LinkToAttach is a reference to a file held by an external system, as supplied
+// by a client that has just let the user pick that file.
+//
+// Name, Size and Mime are the provider's metadata at the moment of picking. They
+// are cached so a list of attachments renders without a round trip per row; the
+// authoritative values always come from resolving Ref.
+type LinkToAttach struct {
+	Provider string `json:"link_provider" doc:"The external system holding the file. Must be one of the providers configured on this instance."`
+	Ref      string `json:"link_ref" doc:"The external system's own stable identifier for the file. Opaque to Vikunja."`
+	Name     string `json:"link_name" doc:"The file's name at the time it was linked. Cached for display only."`
+	Size     int64  `json:"link_size" doc:"The file's size in bytes at the time it was linked. Cached for display only."`
+	Mime     string `json:"link_mime" doc:"The file's mime type at the time it was linked. Cached for display only."`
+}
+
+// CreateLinkTaskAttachment attaches a reference to an externally-held file to a
+// task, and returns the created attachment.
+//
+// Access is decided by exactly the same check an upload goes through —
+// TaskAttachment.CanCreate, i.e. write access to the task. A link is an ordinary
+// attachment that happens to carry a reference instead of bytes, so it must not
+// invent a second, parallel notion of who may attach something.
+//
+// The caller owns the session and the commit.
+func CreateLinkTaskAttachment(s *xorm.Session, a web.Auth, taskID int64, link *LinkToAttach) (attachment *TaskAttachment, err error) {
+	ta := &TaskAttachment{TaskID: taskID}
+	can, err := ta.CanCreate(s, a)
+	if err != nil {
+		return nil, err
+	}
+	if !can {
+		return nil, ErrGenericForbidden{}
+	}
+
+	if link == nil || strings.TrimSpace(link.Ref) == "" {
+		return nil, ErrInvalidLinkAttachment{Reason: "no reference was given"}
+	}
+	// An empty provider is the discriminator for "ordinary upload", so accepting
+	// one here would create a row that claims to be an upload while owning no
+	// file — unreadable, undeletable-as-intended, and invisible to IsLink.
+	if strings.TrimSpace(link.Provider) == "" {
+		return nil, ErrInvalidLinkAttachment{Reason: "no provider was given"}
+	}
+	if _, configured := linkattachments.Get(link.Provider); !configured {
+		return nil, ErrUnknownLinkAttachmentProvider{Provider: link.Provider}
+	}
+
+	ta.LinkProvider = link.Provider
+	ta.LinkRef = link.Ref
+	ta.LinkName = link.Name
+	ta.LinkSize = link.Size
+	ta.LinkMime = link.Mime
+
+	ta.CreatedBy, err = GetUserOrLinkShareUser(s, a)
+	if err != nil {
+		return nil, err
+	}
+	ta.CreatedByID = ta.CreatedBy.ID
+
+	if _, err = s.Insert(ta); err != nil {
+		return nil, err
+	}
+
+	ta.hydrateLinkFile()
+
+	task, err := GetTaskByIDSimple(s, ta.TaskID)
+	if err != nil {
+		return nil, err
+	}
+
+	events.DispatchOnCommit(s, &TaskAttachmentCreatedEvent{
+		Task:       &task,
+		Attachment: ta,
+		Doer:       ta.CreatedBy,
+	})
+
+	return ta, nil
+}
+
 // LoadTaskAttachmentForDownload checks read access, loads the attachment with its
 // open file, and resolves a preview if previewSize is set and the file is an image.
 // It returns the loaded attachment and, when applicable, the preview bytes (the
@@ -219,6 +307,15 @@ func LoadTaskAttachmentForDownload(s *xorm.Session, a web.Auth, taskID, attachme
 	if err := ta.ReadOne(s, a); err != nil {
 		return nil, nil, err
 	}
+
+	// A link attachment has no stored bytes to open and no preview to render: it
+	// is served by sending the caller to the provider instead. Returning it
+	// loaded-but-fileless is deliberate — the access check above is the part this
+	// function exists for, and the caller decides how to serve what it gets back.
+	if ta.IsLink() {
+		return ta, nil, nil
+	}
+
 	if err := ta.File.LoadFileByID(); err != nil {
 		return nil, nil, err
 	}
