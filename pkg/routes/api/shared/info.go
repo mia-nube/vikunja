@@ -59,7 +59,7 @@ type VikunjaInfos struct {
 	// which external systems it may attach files from, and where each one's picker
 	// lives. The client cannot discover this any other way, and hardcoding it there
 	// would put deployment configuration into the bundle.
-	LinkAttachmentProviders []*linkattachments.Provider `json:"link_attachment_providers" doc:"The external systems a task attachment may reference instead of storing. Empty when none are configured."`
+	LinkAttachmentProviders []*linkattachments.LinkProvider `json:"link_attachment_providers" doc:"The external systems a task attachment may reference instead of storing. Empty when none are configured."`
 	// ConcurrentWrites reports whether the configured database can handle concurrent writes. It is false on SQLite, where overlapping write transactions deadlock, so clients should serialize batched writes instead of firing them in parallel.
 	ConcurrentWrites bool `json:"concurrent_writes" doc:"Whether the configured database supports concurrent writes. False on SQLite; clients should serialize batched writes when this is false."`
 }

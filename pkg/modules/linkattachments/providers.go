@@ -41,8 +41,20 @@ import (
 // provider is rejected at load time rather than silently serving the wrong file.
 const RefPlaceholder = "{ref}"
 
-// Provider describes one external system that can hold linked files.
-type Provider struct {
+// LinkProvider describes one external system that can hold linked files.
+//
+// It is NOT called `Provider`, and must not be renamed to it. huma keys its
+// OpenAPI schema registry by a type's BASE NAME, ignoring the package path, so a
+// second `Provider` reaching the API surface collides with `openid.Provider` and
+// **panics at startup** while the v2 routes are registered:
+//
+//	panic: duplicate name: Provider, new type: linkattachments.Provider,
+//	       existing type: openid.Provider
+//
+// Nothing before deployment catches it — the build, `go vet` and the binary's own
+// `version` command are all clean, because that registry is built only when the
+// router is.
+type LinkProvider struct {
 	// Key is the identifier stored in a link attachment's link_provider column.
 	// It comes from the configuration map key.
 	Key string `json:"key" doc:"The identifier stored on a link attachment, used to look this provider up again."`
@@ -64,7 +76,7 @@ type Provider struct {
 // us over the API, so it is treated as untrusted input: without escaping, a
 // reference containing a slash or a query separator could steer the redirect
 // somewhere other than the object it names.
-func (p *Provider) resolveOne(ref string) string {
+func (p *LinkProvider) resolveOne(ref string) string {
 	return strings.ReplaceAll(p.ResolveURL, RefPlaceholder, url.PathEscape(ref))
 }
 
@@ -81,7 +93,7 @@ func ResolveURLFor(providerKey, ref string) (string, bool) {
 }
 
 // Get returns one configured provider by key.
-func Get(key string) (*Provider, bool) {
+func Get(key string) (*LinkProvider, bool) {
 	for _, p := range GetAll() {
 		if p.Key == key {
 			return p, true
@@ -97,12 +109,12 @@ func Get(key string) (*Provider, bool) {
 // {ref} placeholder cannot produce a working download, and one that is absent
 // from this list simply never appears in the UI. Failing quietly at attach time
 // — or worse, at download time, months later — is the outcome this avoids.
-func GetAll() []*Provider {
+func GetAll() []*LinkProvider {
 	raw := normalizeProviderConfig(config.LinkAttachmentsProviders.Get())
 
-	providers := make([]*Provider, 0, len(raw))
+	providers := make([]*LinkProvider, 0, len(raw))
 	for key, cfg := range raw {
-		p := &Provider{
+		p := &LinkProvider{
 			Key:        key,
 			Name:       stringValue(cfg["name"]),
 			PickerURL:  stringValue(cfg["pickerurl"]),

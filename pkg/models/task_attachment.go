@@ -71,10 +71,10 @@ type TaskAttachment struct {
 	// without ever being able to make an attachment point somewhere else, and
 	// moving a provider's address is a configuration change and nothing more —
 	// no stored URL goes stale.
-	LinkURL      string `xorm:"-" json:"link_url,omitempty" readOnly:"true" doc:"Where to open the referenced file. Resolved from this instance's provider configuration on every read. Absent for uploaded attachments."`
-	LinkName     string `xorm:"text null" json:"-"`
-	LinkSize     int64  `xorm:"bigint null" json:"-"`
-	LinkMime     string `xorm:"varchar(255) null" json:"-"`
+	LinkURL  string `xorm:"-" json:"link_url,omitempty" readOnly:"true" doc:"Where to open the referenced file. Resolved from this instance's provider configuration on every read. Absent for uploaded attachments."`
+	LinkName string `xorm:"text null" json:"-"`
+	LinkSize int64  `xorm:"bigint null" json:"-"`
+	LinkMime string `xorm:"varchar(255) null" json:"-"`
 
 	CreatedByID int64      `xorm:"bigint not null" json:"-"`
 	CreatedBy   *user.User `xorm:"-" json:"created_by" readOnly:"true" doc:"The user who uploaded this attachment."`
