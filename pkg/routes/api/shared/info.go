@@ -34,7 +34,13 @@ import (
 
 // VikunjaInfos holds public information about this Vikunja instance.
 type VikunjaInfos struct {
-	Version                    string            `json:"version" doc:"The Vikunja version this instance runs."`
+	Version string `json:"version" doc:"The Vikunja version this instance runs."`
+	// Modified by mia·nube on 2026-08-08: Commit publishes the source revision
+	// this instance was built from, so the client can offer the corresponding
+	// source of the exact build the user is interacting with (AGPL-3.0 §13).
+	// Empty when the build did not record a revision — the client omits the
+	// offer rather than advertising a revision nobody could verify.
+	Commit                     string            `json:"commit" doc:"The source revision this instance was built from. Empty when the build recorded none."`
 	FrontendURL                string            `json:"frontend_url" doc:"The publicly configured frontend URL of this instance."`
 	Motd                       string            `json:"motd" doc:"The message of the day, shown to all users."`
 	LinkSharingEnabled         bool              `json:"link_sharing_enabled" doc:"Whether sharing projects via public links is enabled."`
@@ -99,6 +105,7 @@ type LegalInfo struct {
 func BuildInfo() VikunjaInfos {
 	info := VikunjaInfos{
 		Version:                 version.Version,
+		Commit:                  version.Commit,
 		FrontendURL:             config.ServicePublicURL.GetString(),
 		Motd:                    config.ServiceMotd.GetString(),
 		LinkSharingEnabled:      config.ServiceEnableLinkSharing.GetBool(),

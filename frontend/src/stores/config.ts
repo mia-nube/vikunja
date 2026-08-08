@@ -13,6 +13,11 @@ import {InvalidApiUrlProvidedError} from '@/helpers/checkAndSetApiUrl'
 
 export interface ConfigState {
 	version: string,
+	// Modified by mia·nube on 2026-08-08: the source revision this instance was
+	// built from, reported by /info. The About view uses it to offer the
+	// corresponding source of the exact build in use (AGPL-3.0 §13). Empty when
+	// the build recorded no revision, in which case no offer is shown.
+	commit: string,
 	frontendUrl: string,
 	motd: string,
 	linkSharingEnabled: boolean,
@@ -59,6 +64,7 @@ export const useConfigStore = defineStore('config', () => {
 	const state: ConfigState = reactive({
 		// These are the api defaults.
 		version: '',
+		commit: '',
 		frontendUrl: '',
 		motd: '',
 		linkSharingEnabled: true,

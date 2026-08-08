@@ -14,6 +14,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// Modified by mia·nube on 2026-08-08: adds Commit, the source revision this
+// binary was built from, so the AGPL §13 source offer can name the exact
+// revision a user is interacting with instead of restating it as prose.
+
 package version
 
 import "code.vikunja.io/api/pkg/swagger"
@@ -23,6 +27,16 @@ import "code.vikunja.io/api/pkg/swagger"
 
 // Version sets the version to be printed to the user. Gets overwritten by "make release" or "make build" with last git commit or tag.
 var Version = "dev"
+
+// Commit is the full source revision this binary was built from. It is set at
+// link time (-X code.vikunja.io/api/pkg/version.Commit=<sha>) by a build that
+// knows which revision it is building, and is deliberately EMPTY otherwise.
+//
+// Empty is meaningful, not a placeholder: a build that cannot name its own
+// revision must not claim one. Consumers therefore treat "" as "this build has
+// no verifiable source revision" and omit the source offer rather than
+// advertising a revision nobody could check.
+var Commit = ""
 
 func init() {
 	// Additional swagger information
