@@ -17,6 +17,9 @@
 </template>
 
 <script lang="ts" setup>
+// Modified by mia·nube on 2026-09-11: guard the controllerchange reload against
+// a first-visit false positive — see the comment beside
+// hadControllerAtRegistration below.
 import {computed, ref} from 'vue'
 import {useBaseStore} from '@/stores/base'
 
@@ -26,10 +29,22 @@ const updateAvailable = computed(() => baseStore.updateAvailable)
 const registration = ref<ServiceWorkerRegistration | null>(null)
 const refreshing = ref(false)
 
+// Was this page already under a service worker when we started listening?
+// Captured NOW, before the event can fire — reading navigator.serviceWorker.controller
+// INSIDE the handler is wrong, because by then it is populated in both the
+// first-install case and the genuine-update case, which is exactly why the two
+// are otherwise indistinguishable.
+const hadControllerAtRegistration = Boolean(navigator?.serviceWorker?.controller)
+
 document.addEventListener('swUpdated', showRefreshUI, {once: true})
 
 navigator?.serviceWorker?.addEventListener(
 	'controllerchange', () => {
+		// FIRST INSTALL. clientsClaim() in sw.ts makes the very first service-worker
+		// activation claim this already-loaded page, which fires this same event for
+		// a reason that has nothing to do with an update. Nothing was replaced, so
+		// there is nothing to reload for.
+		if (!hadControllerAtRegistration) return
 		if (refreshing.value) return
 		refreshing.value = true
 		window.location.reload()
