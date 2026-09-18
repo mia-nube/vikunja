@@ -40,14 +40,15 @@ import (
 )
 
 const (
-	indexFile               = `index.html`
-	rootPath                = `dist/`
-	cacheControlMax         = `max-age=315360000, public, max-age=31536000, s-maxage=31536000, immutable`
-	cacheControlNone        = `public, max-age=0, s-maxage=0, must-revalidate`
+	indexFile        = `index.html`
+	rootPath         = `dist/`
+	cacheControlMax  = `max-age=315360000, public, max-age=31536000, s-maxage=31536000, immutable`
+	cacheControlNone = `public, max-age=0, s-maxage=0, must-revalidate`
+	// Modified by mia·nube on 2026-09-18: removed the SENTRY_ENABLED/SENTRY_DSN
+	// window globals this template injected into every served index.html --
+	// mia-nube patch #7.
 	configScriptTagTemplate = `
 <script>
-	window.SENTRY_ENABLED = {{ .SENTRY_ENABLED }}
-	window.SENTRY_DSN = '{{ .SENTRY_DSN }}'
 	window.CUSTOM_LOGO_URL = '{{ .CUSTOM_LOGO_URL }}'
 	window.CUSTOM_LOGO_URL_DARK = '{{ .CUSTOM_LOGO_URL_DARK }}'
 </script>`
@@ -86,11 +87,6 @@ func serveIndexFile(c *echo.Context, assetFs http.FileSystem) (err error) {
 		var tplOutput bytes.Buffer
 		data := make(map[string]string)
 
-		data["SENTRY_ENABLED"] = "false"
-		if config.SentryFrontendEnabled.GetBool() {
-			data["SENTRY_ENABLED"] = "true"
-		}
-		data["SENTRY_DSN"] = config.SentryFrontendDsn.GetString()
 		data["CUSTOM_LOGO_URL"] = config.ServiceCustomLogoURL.GetString()
 		data["CUSTOM_LOGO_URL_DARK"] = config.ServiceCustomLogoURLDark.GetString()
 

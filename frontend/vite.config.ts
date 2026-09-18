@@ -11,7 +11,6 @@ import {VitePWA} from 'vite-plugin-pwa'
 import UnpluginInjectPreload from 'unplugin-inject-preload/vite'
 import {visualizer} from 'rollup-plugin-visualizer'
 
-import { sentryVitePlugin, type SentryVitePluginOptions } from '@sentry/vite-plugin'
 import svgLoader from 'vite-svg-loader'
 import postcssPresetEnv from 'postcss-preset-env'
 import postcssEasingGradients from 'postcss-easing-gradients'
@@ -24,52 +23,9 @@ const pathSrc = fileURLToPath(new URL('./src', import.meta.url)).replaceAll('\\'
 const PREFIXED_SCSS_STYLES = `@use "sass:math";
 @import "${pathSrc}/styles/common-imports.scss";`
 
-/*
-** Configure sentry plugin
-*/
-function getSentryConfig(env: Record<string, string>): SentryVitePluginOptions {
-	return {
-		// keep these flags for easier debugging
-		disable: true,
-		debug: true, // print information about which files end up being uploaded
-		silent: false,
-
-		// allow compilation to continue but still emit a warning
-		errorHandler: (err) => console.warn(err),
-
-		// skipEnvironmentCheck: true,
-
-		// url: 'https://sentry.io', // TODO add env
-		authToken: env.SENTRY_AUTH_TOKEN,
-		org: env.SENTRY_ORG,
-		project: env.SENTRY_PROJECT,
-
-		telemetry: false,
-
-		// sourcemaps: {
-			// assets: [], // TODO
-			// deleteFilesAfterUpload: [], // TODO define glob
-			// rewriteSources // might need that instead of `urlPrefix`
-		// },
-
-		release: {
-			// name: VERSION, // TODO release version
-			setCommits: {
-				auto: true,
-				ignoreMissing: true,
-			},
-			deploy: {
-				env: env.MODE,
-			},
-		},
-
-		// sourceMaps: {
-		// 	include: ['./dist/assets'],
-		// 	ignore: ['node_modules'],
-		// 	urlPrefix: '~/assets',
-		// },
-	}
-}
+// Modified by mia·nube on 2026-09-18: removed the SENTRY_ENABLED/SENTRY_DSN
+// frontend Sentry integration (getSentryConfig, the sentry-vite-plugin wiring,
+// and the sentry manualChunks split) -- mia-nube patch #7.
 
 /**
  * @param fontNames Array of the file names of the fonts without axis and hash suffixes
@@ -225,8 +181,6 @@ function getBuildConfig(env: Record<string, string>) {
 			vueDevTools({
 				launchEditor: env.VUE_DEVTOOLS_LAUNCH_EDITOR || 'code',
 			}),
-			// Put the Sentry vite plugin after all other plugins
-			sentryVitePlugin(getSentryConfig(env)),
 		],
 		resolve: {
 			alias: [
@@ -242,16 +196,9 @@ function getBuildConfig(env: Record<string, string>) {
 			port: parseInt(env.VIKUNJA_FRONTEND_PORT || '4173', 10),
 			strictPort: true,
 		},
-		output: {
-			manualChunks: {
-				// by putting tracking related stuff in a separated file we try to prevent unwanted blocking from ad-blockers
-				sentry: ['./src/sentry.ts', '@sentry/*'],
-			},
-		},
 		build: {
 			target: 'esnext',
-			// required for sentry debugging: tells vite to create source maps
-			sourcemap: Boolean(env.SENTRY_AUTH_TOKEN),
+			sourcemap: false,
 			rollupOptions: {
 				plugins: [
 					visualizer({

@@ -14,11 +14,12 @@ import './registerServiceWorker'
 // i18n
 import {getBrowserLanguage, i18n, setLanguage} from './i18n'
 
+// Modified by mia·nube on 2026-09-18: removed the SENTRY_ENABLED/SENTRY_DSN
+// window globals and the frontend Sentry integration they gated -- see
+// mia-nube patch #7 in MIA-NUBE-PATCHES.md.
 declare global {
 	interface Window {
 		API_URL: string;
-		SENTRY_ENABLED?: boolean;
-		SENTRY_DSN?: string;
 		CUSTOM_LOGO_URL?: string;
 		CUSTOM_LOGO_URL_DARK?: string;
 	}
@@ -57,14 +58,6 @@ setupKeyboardModality()
 const browserLanguage = getBrowserLanguage()
 setLanguage(browserLanguage).then(() => {
 	const app = createApp(App)
-
-	if (window.SENTRY_ENABLED) {
-		try {
-			import('./sentry').then(sentry => sentry.default(app, router))
-		} catch (e) {
-			console.error('Could not enable Sentry tracking', e)
-		}
-	}
 
 	app.use(Notifications)
 

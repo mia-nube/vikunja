@@ -7,12 +7,8 @@ interface ImportMetaEnv {
 	readonly VIKUNJA_HTTP_PORT?: number
 	readonly VIKUNJA_HTTPS_PORT?: number
 
-	readonly VIKUNJA_SENTRY_ENABLED?: boolean
-	readonly VIKUNJA_SENTRY_DSN?: string
-
-	readonly SENTRY_AUTH_TOKEN?: string
-	readonly SENTRY_ORG?: string
-	readonly SENTRY_PROJECT?: string
+	// Modified by mia·nube on 2026-09-18: removed the SENTRY_ENABLED/SENTRY_DSN
+	// env var types along with the frontend Sentry integration -- mia-nube patch #7.
 
 	readonly VITE_IS_ONLINE: boolean
 

@@ -74,10 +74,13 @@ const (
 	ServiceIPExtractionMethod             Key = `service.ipextractionmethod`
 	ServiceTrustedProxies                 Key = `service.trustedproxies`
 
-	SentryEnabled         Key = `sentry.enabled`
-	SentryDsn             Key = `sentry.dsn`
-	SentryFrontendEnabled Key = `sentry.frontendenabled`
-	SentryFrontendDsn     Key = `sentry.frontenddsn`
+	SentryEnabled Key = `sentry.enabled`
+	SentryDsn     Key = `sentry.dsn`
+
+	// Modified by mia·nube on 2026-09-18: removed the sentry.frontendenabled/
+	// sentry.frontenddsn keys along with the frontend Sentry integration they
+	// fed -- mia-nube patch #7. The backend-only SentryEnabled/SentryDsn keys
+	// above are untouched: they never reach a user's browser.
 
 	AuthLocalEnabled    Key = `auth.local.enabled`
 	AuthOpenIDEnabled   Key = `auth.openid.enabled`
@@ -384,7 +387,6 @@ func InitDefaultConfig() {
 
 	// Sentry
 	SentryDsn.setDefault("https://440eedc957d545a795c17bbaf477497c@o1047380.ingest.sentry.io/4504254983634944")
-	SentryFrontendDsn.setDefault("https://85694a2d757547cbbc90cd4b55c5a18d@o1047380.ingest.sentry.io/6024480")
 
 	// Auth
 	AuthLocalEnabled.setDefault(true)
