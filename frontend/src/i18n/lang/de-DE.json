@@ -1473,7 +1473,7 @@
 		"frontendVersion": "Frontend-Version: {version}",
 		"apiVersion": "API-Version: {version}",
 		"sourceOffer": {
-			"modified": "Dies ist eine veränderte Version von Vikunja unter der GNU AGPL-3.0. Sie haben Anspruch auf den vollständigen Quelltext genau der Version, die Sie verwenden.",
+			"modified": "Dies ist eine veränderte Version von Vikunja unter der GNU AGPL-3.0. du hast Anspruch auf den vollständigen Quelltext genau der Version, die du verwendest.",
 			"commit": "Quelltext-Revision:",
 			"link": "Quelltext dieser Version abrufen"
 		}
