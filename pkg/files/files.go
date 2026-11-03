@@ -20,8 +20,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
-	"os"
 	"strconv"
 	"time"
 
@@ -34,6 +34,10 @@ import (
 	"github.com/gabriel-vasile/mimetype"
 	"xorm.io/xorm"
 )
+
+// Modified by mia·nube on 2026-11-03: File.Delete no longer reports success
+// when removing the stored bytes failed; only an already-absent object counts
+// as deleted. See the comment in Delete.
 
 // File holds all information about a file
 type File struct {
@@ -193,14 +197,19 @@ func (f *File) Delete(s *xorm.Session) (err error) {
 
 	err = storage.Remove(f.fileID())
 	if err != nil {
-		var perr *os.PathError
-		if errors.As(err, &perr) {
-			// Don't fail when removing the file failed
-			log.Errorf("Error deleting file %d: %s", f.ID, err)
+		// An object that is already gone is the state deletion asks for, so a
+		// retry after a rolled-back transaction (row restored, bytes already
+		// removed) still succeeds. Every other failure means the bytes may
+		// still be stored: report it, so the caller's transaction rolls back
+		// instead of recording an erasure that did not happen. Before the
+		// mia·nube change below, any *os.PathError (permission denied, I/O
+		// error, read-only filesystem …) was logged and reported as success.
+		if errors.Is(err, fs.ErrNotExist) {
+			log.Warningf("File %d was already absent from storage: %s", f.ID, err)
 			return nil
 		}
 
-		return err
+		return fmt.Errorf("could not remove file %d from storage: %w", f.ID, err)
 	}
 
 	return nil
