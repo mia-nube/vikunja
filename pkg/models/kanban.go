@@ -27,6 +27,9 @@ import (
 	"xorm.io/xorm"
 )
 
+// Every kanban read runs one task query per bucket.
+const maxBucketsPerView = 100
+
 // Bucket represents a kanban bucket
 type Bucket struct {
 	// The unique, numeric id of this bucket.
@@ -90,7 +93,7 @@ func getDefaultBucketID(s *xorm.Session, view *ProjectView) (bucketID int64, err
 	bucket := &Bucket{}
 	_, err = s.
 		Where("project_view_id = ?", view.ID).
-		OrderBy("position asc").
+		OrderBy("position asc, id asc").
 		Get(bucket)
 	if err != nil {
 		return 0, err

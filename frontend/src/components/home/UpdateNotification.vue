@@ -20,12 +20,16 @@
 // Modified by mia·nube on 2026-09-11: guard the controllerchange reload against
 // a first-visit false positive — see the comment beside
 // hadControllerAtRegistration below.
+// Modified by mia·nube on 2026-11-03: merged with upstream v2.7.1's own
+// refreshApp() opt-in guard; both guards apply.
 import {computed, ref} from 'vue'
 import {useBaseStore} from '@/stores/base'
+import {useAuthStore} from '@/stores/auth'
 
 const baseStore = useBaseStore()
+const authStore = useAuthStore()
 
-const updateAvailable = computed(() => baseStore.updateAvailable)
+const updateAvailable = computed(() => baseStore.updateAvailable && authStore.authenticated)
 const registration = ref<ServiceWorkerRegistration | null>(null)
 const refreshing = ref(false)
 
@@ -45,8 +49,13 @@ navigator?.serviceWorker?.addEventListener(
 		// a reason that has nothing to do with an update. Nothing was replaced, so
 		// there is nothing to reload for.
 		if (!hadControllerAtRegistration) return
-		if (refreshing.value) return
-		refreshing.value = true
+		// Upstream (v2.5.0+) independently guards the same event: only reload after
+		// the user opted into an update via refreshApp(), or unsaved state (e.g.
+		// login form input) gets wiped. Both guards are kept on the 2.7.1 merge: the
+		// first-install check above does not depend on refreshApp() being the only
+		// writer of `refreshing`.
+		if (!refreshing.value) return
+		refreshing.value = false
 		window.location.reload()
 	},
 )
@@ -63,6 +72,7 @@ function refreshApp() {
 	if (!registration.value || !registration.value.waiting) {
 		return
 	}
+	refreshing.value = true
 	// Notify the service worker to actually do the update
 	registration.value.waiting.postMessage('skipWaiting')
 }

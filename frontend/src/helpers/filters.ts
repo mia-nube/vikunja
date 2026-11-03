@@ -25,6 +25,10 @@ export const ASSIGNEE_FIELDS = [
 	'assignees',
 ]
 
+export const CREATED_BY_FIELDS = [
+	'createdBy',
+]
+
 export const LABEL_FIELDS = [
 	'labels',
 ]
@@ -36,12 +40,14 @@ export const PROJECT_FIELDS = [
 export const AUTOCOMPLETE_FIELDS = [
 	...LABEL_FIELDS,
 	...ASSIGNEE_FIELDS,
+	...CREATED_BY_FIELDS,
 	...PROJECT_FIELDS,
 ]
 
 export const AVAILABLE_FILTER_FIELDS = [
 	...DATE_FIELDS,
 	...ASSIGNEE_FIELDS,
+	...CREATED_BY_FIELDS,
 	...LABEL_FIELDS,
 	...PROJECT_FIELDS,
 	'done',
@@ -77,7 +83,7 @@ export const FILTER_OPERATORS_REGEX = '('+FILTER_OPERATORS.map(op => {
 }).join('|')+')'
 
 export function hasFilterQuery(filter: string): boolean {
-	return FILTER_OPERATORS.find(o => filter.includes(o)) || false
+	return FILTER_OPERATORS.some(o => filter.includes(o))
 }
 
 export function getFilterFieldRegexPattern(field: string): RegExp {

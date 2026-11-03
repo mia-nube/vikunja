@@ -42,7 +42,7 @@ func TestAPITokenRoutesIncludesCaldav(t *testing.T) {
 	defer s.Close()
 	u, err := user.GetUserByID(s, 1)
 	require.NoError(t, err)
-	jwt, err := auth.NewUserJWTAuthtoken(u, "test-session-id")
+	jwt, err := auth.NewUserJWTAuthtoken(u, testSessionID(u))
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes", nil)
@@ -90,6 +90,23 @@ func TestAPIToken(t *testing.T) {
 		require.NoError(t, h(c))
 		assert.Equal(t, http.StatusUnauthorized, res.Code)
 		assert.Contains(t, res.Body.String(), `"code":11`)
+	})
+	t.Run("token shorter than prefix+8", func(t *testing.T) {
+		for _, short := range []string{"tk_", "tk_a", "tk_abc", "tk_1234567"} {
+			e, err := setupTestEnv()
+			require.NoError(t, err)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
+			res := httptest.NewRecorder()
+			c := e.NewContext(req, res)
+			h := routes.SetupTokenMiddleware()(func(c *echo.Context) error {
+				return c.String(http.StatusOK, "test")
+			})
+
+			req.Header.Set(echo.HeaderAuthorization, "Bearer "+short)
+			require.NoError(t, h(c))
+			assert.Equal(t, http.StatusUnauthorized, res.Code, "short token %q must be rejected", short)
+			assert.Contains(t, res.Body.String(), `"code":11`)
+		}
 	})
 	t.Run("expired token", func(t *testing.T) {
 		e, err := setupTestEnv()
@@ -165,7 +182,7 @@ func TestAPIToken(t *testing.T) {
 		defer s.Close()
 		u, err := user.GetUserByID(s, 1)
 		require.NoError(t, err)
-		jwt, err := auth.NewUserJWTAuthtoken(u, "test-session-id")
+		jwt, err := auth.NewUserJWTAuthtoken(u, testSessionID(u))
 		require.NoError(t, err)
 
 		req.Header.Set(echo.HeaderAuthorization, "Bearer "+jwt)
@@ -187,7 +204,7 @@ func userJWT(t *testing.T, id int64) string {
 	defer s.Close()
 	u, err := user.GetUserByID(s, id)
 	require.NoError(t, err)
-	jwt, err := auth.NewUserJWTAuthtoken(u, "test-session-id")
+	jwt, err := auth.NewUserJWTAuthtoken(u, testSessionID(u))
 	require.NoError(t, err)
 	return jwt
 }

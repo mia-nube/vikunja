@@ -1,5 +1,7 @@
 <!--
 	Added by mia·nube on 2026-08-03.
+	Updated by mia·nube on 2026-11-03: reads the provider's snake_case
+	picker_url, following the upstream v2.7 /info wire names.
 
 	Embeds an external system's own file picker and turns the file the user
 	chooses there into a link attachment.
@@ -13,7 +15,7 @@
 	That crossing is the security-relevant part, so it is validated in both
 	directions and narrowly:
 
-	  * the iframe is loaded from the configured pickerUrl and nothing else;
+	  * the iframe is loaded from the configured picker_url and nothing else;
 	  * a message is accepted only when its origin is exactly that URL's origin
 	    AND it came from this iframe's own window. Origin alone is not enough —
 	    any other frame or opener on that origin could otherwise post to us;
@@ -113,7 +115,7 @@ let pingTimer: ReturnType<typeof setInterval> | null = null
 // back to. Derived from the configured picker URL so the two can never disagree.
 const pickerOrigin = computed(() => {
 	try {
-		return new URL(props.provider.pickerUrl, window.location.href).origin
+		return new URL(props.provider.picker_url, window.location.href).origin
 	} catch {
 		return ''
 	}
@@ -122,7 +124,7 @@ const pickerOrigin = computed(() => {
 // The picker is told our origin so it can target its own message rather than
 // posting to "*", which would leak the selection to whatever else framed it.
 const pickerSrc = computed(() => {
-	const url = new URL(props.provider.pickerUrl, window.location.href)
+	const url = new URL(props.provider.picker_url, window.location.href)
 	url.searchParams.set('mode', 'select')
 	url.searchParams.set('origin', window.location.origin)
 	return url.toString()

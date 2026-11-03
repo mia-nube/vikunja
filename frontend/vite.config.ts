@@ -71,6 +71,7 @@ function getBuildConfig(env: Record<string, string>) {
 		// https://vitest.dev/config/
 		test: {
 			environment: 'happy-dom',
+			setupFiles: ['./src/test-setup.ts'],
 			exclude: [...configDefaults.exclude, 'e2e/**'],
 			'vitest.commandLine': 'pnpm test:unit',
 		},
@@ -197,7 +198,6 @@ function getBuildConfig(env: Record<string, string>) {
 			strictPort: true,
 		},
 		build: {
-			target: 'esnext',
 			sourcemap: false,
 			rollupOptions: {
 				plugins: [

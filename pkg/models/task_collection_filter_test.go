@@ -21,12 +21,10 @@ import (
 	"time"
 
 	"code.vikunja.io/api/pkg/config"
-	"code.vikunja.io/api/pkg/db"
 
 	datemath "github.com/jszwedko/go-datemath"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"xorm.io/builder"
 )
 
 func TestParseFilter(t *testing.T) {
@@ -181,6 +179,20 @@ func TestParseFilter(t *testing.T) {
 
 		require.Error(t, err)
 	})
+	t.Run("word concatenator hints at && and ||", func(t *testing.T) {
+		_, err := getTaskFiltersFromFilterString("done = false and due_date >= 2026-01-01", "UTC")
+
+		var valueErr ErrInvalidTaskFilterValue
+		require.ErrorAs(t, err, &valueErr)
+		assert.Contains(t, valueErr.HTTPError().Message, "&&")
+	})
+	t.Run("invalid value without word concatenator has no hint", func(t *testing.T) {
+		_, err := getTaskFiltersFromFilterString("done = maybe", "UTC")
+
+		var valueErr ErrInvalidTaskFilterValue
+		require.ErrorAs(t, err, &valueErr)
+		assert.NotContains(t, valueErr.HTTPError().Message, "&&")
+	})
 	t.Run("multiple filters with AND", func(t *testing.T) {
 		result, err := getTaskFiltersFromFilterString("done = false && priority > 3", "UTC")
 
@@ -230,6 +242,33 @@ func TestParseFilter(t *testing.T) {
 		assert.Equal(t, "priority", result[0].field)
 		assert.Equal(t, taskFilterComparatorNotEquals, result[0].comparator)
 		assert.Equal(t, int64(3), result[0].value)
+	})
+	t.Run("created by resolves to usernames, not an int64 id", func(t *testing.T) {
+		result, err := getTaskFiltersFromFilterString("created_by in 'user1,user6'", "UTC")
+
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		assert.Equal(t, "created_by", result[0].field)
+		assert.Equal(t, taskFilterComparatorIn, result[0].comparator)
+		assert.Equal(t, []string{"user1", "user6"}, result[0].value)
+	})
+	t.Run("created by usernames are trimmed of surrounding whitespace", func(t *testing.T) {
+		result, err := getTaskFiltersFromFilterString("created_by in 'user1, user6'", "UTC")
+
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		assert.Equal(t, "created_by", result[0].field)
+		assert.Equal(t, taskFilterComparatorIn, result[0].comparator)
+		assert.Equal(t, []string{"user1", "user6"}, result[0].value)
+	})
+	t.Run("created by usernames drop empty entries from stray commas", func(t *testing.T) {
+		result, err := getTaskFiltersFromFilterString("created_by in 'user1, , user6,'", "UTC")
+
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		assert.Equal(t, "created_by", result[0].field)
+		assert.Equal(t, taskFilterComparatorIn, result[0].comparator)
+		assert.Equal(t, []string{"user1", "user6"}, result[0].value)
 	})
 	t.Run("less than or equal comparator", func(t *testing.T) {
 		result, err := getTaskFiltersFromFilterString("percent_done <= 50", "UTC")
@@ -303,11 +342,7 @@ func TestParseFilter(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, result, 1)
 		date := result[0].value.(time.Time)
-		if db.GetDialect() == builder.MYSQL {
-			assert.Equal(t, 1, date.Year())
-		} else {
-			assert.Equal(t, 0, date.Year())
-		}
+		assert.Equal(t, 1, date.Year())
 	})
 	t.Run("project with parentheses", func(t *testing.T) {
 		result, err := getTaskFiltersFromFilterString("( project = 1 )", "UTC")
@@ -336,6 +371,47 @@ func TestParseFilter(t *testing.T) {
 		assert.Equal(t, taskFilterComparatorEquals, firstSet[1].comparator)
 		assert.Equal(t, int64(1), firstSet[1].value)
 	})
+	t.Run("like query with in inside a quoted value", func(t *testing.T) {
+		result, err := getTaskFiltersFromFilterString("title like 'stuff in progress'", "UTC")
+
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		assert.Equal(t, "title", result[0].field)
+		assert.Equal(t, taskFilterComparatorLike, result[0].comparator)
+		assert.Equal(t, "stuff in progress", result[0].value)
+	})
+	t.Run("like query with in inside a double quoted value", func(t *testing.T) {
+		result, err := getTaskFiltersFromFilterString(`title like "stuff in progress"`, "UTC")
+
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		assert.Equal(t, "title", result[0].field)
+		assert.Equal(t, taskFilterComparatorLike, result[0].comparator)
+		assert.Equal(t, "stuff in progress", result[0].value)
+	})
+	t.Run("like query with escaped quote and in inside the value", func(t *testing.T) {
+		result, err := getTaskFiltersFromFilterString(`title like 'it\'s in progress'`, "UTC")
+
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		assert.Equal(t, "title", result[0].field)
+		assert.Equal(t, taskFilterComparatorLike, result[0].comparator)
+		assert.Equal(t, "it's in progress", result[0].value)
+	})
+	t.Run("in outside quotes next to in inside a quoted value", func(t *testing.T) {
+		result, err := getTaskFiltersFromFilterString("title like 'stuff in progress' && project in 1,2", "UTC")
+
+		require.NoError(t, err)
+		require.Len(t, result, 2)
+		assert.Equal(t, "title", result[0].field)
+		assert.Equal(t, taskFilterComparatorLike, result[0].comparator)
+		assert.Equal(t, "stuff in progress", result[0].value)
+		assert.Equal(t, "project_id", result[1].field)
+		assert.Equal(t, taskFilterComparatorIn, result[1].comparator)
+		require.Len(t, result[1].value, 2)
+		assert.Equal(t, int64(1), result[1].value.([]interface{})[0])
+		assert.Equal(t, int64(2), result[1].value.([]interface{})[1])
+	})
 	t.Run("invalid date value should not panic", func(t *testing.T) {
 		// "no" triggers a panic in the datemath lexer because it starts
 		// recognizing "now" but hits EOF after "no". The safeDatemathParse
@@ -343,6 +419,57 @@ func TestParseFilter(t *testing.T) {
 		_, err := getTaskFiltersFromFilterString("due_date = no", "UTC")
 		require.Error(t, err)
 	})
+}
+
+func TestReplaceFilterOperators(t *testing.T) {
+	tests := []struct {
+		name   string
+		filter string
+		want   string
+	}{
+		{"no operators", "done = false && priority > 3", "done = false && priority > 3"},
+		{"in", "project in 1,2,3", "project ?= 1,2,3"},
+		{"not in", "project not in 1,2,3", "project ?!= 1,2,3"},
+		{"like", "title like foo", "title ~ foo"},
+		{"not in wins over in", "done not in true,false", "done ?!= true,false"},
+		{"multiple operators", "project in 1,2 && title like foo", "project ?= 1,2 && title ~ foo"},
+
+		{"in inside single quotes", "title like 'stuff in progress'", "title ~ 'stuff in progress'"},
+		{"not in inside single quotes", "title = 'tasks not in scope'", "title = 'tasks not in scope'"},
+		{"like inside single quotes", "title = 'things i like a lot'", "title = 'things i like a lot'"},
+		{"in inside double quotes", `title like "stuff in progress"`, `title ~ "stuff in progress"`},
+		{"not in inside double quotes", `title = "tasks not in scope"`, `title = "tasks not in scope"`},
+		{"like inside double quotes", `title = "things i like a lot"`, `title = "things i like a lot"`},
+		{"single quote inside double quoted value", `title like "it's in progress"`, `title ~ "it's in progress"`},
+
+		{
+			"operator outside quotes and same word inside a quoted value",
+			"title like 'stuff in progress' && project in 1,2",
+			"title ~ 'stuff in progress' && project ?= 1,2",
+		},
+		{
+			"escaped single quote inside value",
+			`title like 'it\'s in progress' && project in 1,2`,
+			`title ~ 'it\'s in progress' && project ?= 1,2`,
+		},
+		{
+			"escaped double quote inside value",
+			`title like "it\"s in progress" && project in 1,2`,
+			`title ~ "it\"s in progress" && project ?= 1,2`,
+		},
+		{
+			// An unclosed quote is a bare value with an apostrophe, not a string.
+			"unclosed quote does not swallow the rest of the filter",
+			"title = it's cool && project in 1,2",
+			"title = it's cool && project ?= 1,2",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, replaceFilterOperators(tc.filter))
+		})
+	}
 }
 
 // Date filter boundaries must be emitted in UTC — the driver drops a bound
@@ -387,4 +514,33 @@ func TestDateFilterTimezone(t *testing.T) {
 		assert.Equal(t, time.UTC, got.Location(), "filter boundary must be in UTC, got %s", got.Location())
 		assert.Equal(t, "2026-07-15 07:00:00", got.Format("2006-01-02 15:04:05"))
 	})
+}
+
+// A date filter boundary must never be normalized to a year below 1: MySQL's
+// driver refuses to encode such a parameter ("year is not in the range
+// [1, 9999]"). Parsing the zero-date sentinel in a timezone east of Greenwich
+// underflows into year 0 on the way to UTC. Sentry API-OSS-2Q.
+func TestZeroDateFilterBoundary(t *testing.T) {
+	// Europe/Berlin is LMT (+00:53) in year 1, so midnight there is year 0 in UTC.
+	for _, filter := range []string{
+		"due_date > 0001-01-01 00:00",
+		"due_date > 0001-01-01",
+		"due_date > 0000-01-01",
+		"due_date > 0001-01-01T00:00:00Z",
+	} {
+		t.Run(filter, func(t *testing.T) {
+			filters, err := getTaskFiltersFromFilterString(filter, "Europe/Berlin")
+			require.NoError(t, err)
+			require.Len(t, filters, 1)
+
+			got, ok := filters[0].value.(time.Time)
+			require.True(t, ok)
+
+			assert.Equal(t, time.UTC, got.Location())
+			assert.GreaterOrEqual(t, got.Year(), 1, "boundary %s must not underflow year 1, got %s", filter, got)
+			// Must still sort after the unset-date sentinel so "has a due date"
+			// filters don't match tasks without one.
+			assert.False(t, got.Before(time.Time{}), "boundary %s must not predate the zero date, got %s", filter, got)
+		})
+	}
 }

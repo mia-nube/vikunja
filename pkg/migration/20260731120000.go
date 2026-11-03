@@ -43,7 +43,16 @@ func init() {
 		ID:          "20260731120000",
 		Description: "mia-nube: add link-attachment columns and make task_attachments.file_id nullable",
 		Migrate: func(tx *xorm.Engine) error {
-			if err := tx.Sync2(taskAttachment20260731120000{}); err != nil {
+			// Modified by mia·nube on 2026-11-03: partialSync instead of tx.Sync2.
+			// A plain Sync of this partial struct drops every task_attachments index
+			// it does not declare (upstream #3244, fixed for upstream's own historical
+			// migrations in v2.5.0). On a database that runs this migration after
+			// upstream's index repair 20260720120000 — which sorts first — Sync2
+			// would drop the repaired indexes again. partialSync adds the columns and
+			// the link_provider index and leaves every existing index alone. Fresh
+			// installs are unaffected: they get the full schema from initSchema and
+			// never run this migration.
+			if err := partialSync(tx, taskAttachment20260731120000{}); err != nil {
 				return fmt.Errorf("could not add the link attachment columns: %w", err)
 			}
 

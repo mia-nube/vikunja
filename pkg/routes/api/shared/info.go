@@ -24,6 +24,7 @@ import (
 	"code.vikunja.io/api/pkg/modules/linkattachments"
 	csvmigrator "code.vikunja.io/api/pkg/modules/migration/csv"
 	microsofttodo "code.vikunja.io/api/pkg/modules/migration/microsoft-todo"
+	"code.vikunja.io/api/pkg/modules/migration/planka"
 	"code.vikunja.io/api/pkg/modules/migration/ticktick"
 	"code.vikunja.io/api/pkg/modules/migration/todoist"
 	"code.vikunja.io/api/pkg/modules/migration/trello"
@@ -40,27 +41,27 @@ type VikunjaInfos struct {
 	// source of the exact build the user is interacting with (AGPL-3.0 §13).
 	// Empty when the build did not record a revision — the client omits the
 	// offer rather than advertising a revision nobody could verify.
-	Commit                     string            `json:"commit" doc:"The source revision this instance was built from. Empty when the build recorded none."`
-	FrontendURL                string            `json:"frontend_url" doc:"The publicly configured frontend URL of this instance."`
-	Motd                       string            `json:"motd" doc:"The message of the day, shown to all users."`
-	LinkSharingEnabled         bool              `json:"link_sharing_enabled" doc:"Whether sharing projects via public links is enabled."`
-	MaxFileSize                string            `json:"max_file_size" doc:"The maximum allowed upload size, as a human-readable string (e.g. 20MB)."`
-	MaxItemsPerPage            int               `json:"max_items_per_page" doc:"The maximum number of items a paginated endpoint returns per page."`
-	AvailableMigrators         []string          `json:"available_migrators" doc:"The migrators enabled on this instance."`
-	TaskAttachmentsEnabled     bool              `json:"task_attachments_enabled" doc:"Whether task attachments are enabled."`
-	EnabledBackgroundProviders []string          `json:"enabled_background_providers" doc:"The project-background providers enabled on this instance (e.g. upload, unsplash)."`
-	TotpEnabled                bool              `json:"totp_enabled" doc:"Whether TOTP two-factor authentication is enabled."`
-	Legal                      LegalInfo         `json:"legal" doc:"Links to the instance's legal documents."`
-	CaldavEnabled              bool              `json:"caldav_enabled" doc:"Whether the CalDAV interface is enabled."`
-	AuthInfo                   AuthInfo          `json:"auth" doc:"The authentication methods enabled on this instance."`
-	EmailRemindersEnabled      bool              `json:"email_reminders_enabled" doc:"Whether email reminders are enabled."`
-	UserDeletionEnabled        bool              `json:"user_deletion_enabled" doc:"Whether users may delete their own account."`
-	TaskCommentsEnabled        bool              `json:"task_comments_enabled" doc:"Whether task comments are enabled."`
-	DemoModeEnabled            bool              `json:"demo_mode_enabled" doc:"Whether this instance runs in demo mode (data is periodically reset)."`
-	WebhooksEnabled            bool              `json:"webhooks_enabled" doc:"Whether webhooks are enabled."`
-	PublicTeamsEnabled         bool              `json:"public_teams_enabled" doc:"Whether public teams are enabled."`
-	AllowIconChanges           bool              `json:"allow_icon_changes" doc:"Whether users may change project icons."`
-	EnabledProFeatures         []license.Feature `json:"enabled_pro_features" doc:"The licensed pro features enabled on this instance."`
+	Commit                     string    `json:"commit" doc:"The source revision this instance was built from. Empty when the build recorded none."`
+	FrontendURL                string    `json:"frontend_url" doc:"The publicly configured frontend URL of this instance."`
+	Motd                       string    `json:"motd" doc:"The message of the day, shown to all users."`
+	LinkSharingEnabled         bool      `json:"link_sharing_enabled" doc:"Whether sharing projects via public links is enabled."`
+	MaxFileSize                string    `json:"max_file_size" doc:"The maximum allowed upload size, as a human-readable string (e.g. 20MB)."`
+	MaxItemsPerPage            int       `json:"max_items_per_page" doc:"The maximum number of items a paginated endpoint returns per page."`
+	AvailableMigrators         []string  `json:"available_migrators" doc:"The migrators enabled on this instance."`
+	TaskAttachmentsEnabled     bool      `json:"task_attachments_enabled" doc:"Whether task attachments are enabled."`
+	EnabledBackgroundProviders []string  `json:"enabled_background_providers" doc:"The project-background providers enabled on this instance (e.g. upload, unsplash)."`
+	TotpEnabled                bool      `json:"totp_enabled" doc:"Whether TOTP two-factor authentication is enabled."`
+	Legal                      LegalInfo `json:"legal" doc:"Links to the instance's legal documents."`
+	CaldavEnabled              bool      `json:"caldav_enabled" doc:"Whether the CalDAV interface is enabled."`
+	AuthInfo                   AuthInfo  `json:"auth" doc:"The authentication methods enabled on this instance."`
+	EmailRemindersEnabled      bool      `json:"email_reminders_enabled" doc:"Whether email reminders are enabled."`
+	UserDeletionEnabled        bool      `json:"user_deletion_enabled" doc:"Whether users may delete their own account."`
+	TaskCommentsEnabled        bool      `json:"task_comments_enabled" doc:"Whether task comments are enabled."`
+	DemoModeEnabled            bool      `json:"demo_mode_enabled" doc:"Whether this instance runs in demo mode (data is periodically reset)."`
+	WebhooksEnabled            bool      `json:"webhooks_enabled" doc:"Whether webhooks are enabled."`
+	PublicTeamsEnabled         bool      `json:"public_teams_enabled" doc:"Whether public teams are enabled."`
+	AllowIconChanges           bool      `json:"allow_icon_changes" doc:"Whether users may change project icons."`
+	EnabledProFeatures         []string  `json:"enabled_pro_features" doc:"The licensed pro features enabled on this instance."`
 	// Modified by mia·nube on 2026-08-03: LinkAttachmentProviders tells the client
 	// which external systems it may attach files from, and where each one's picker
 	// lives. The client cannot discover this any other way, and hardcoding it there
@@ -103,6 +104,12 @@ type LegalInfo struct {
 // BuildInfo assembles the public instance information returned by GET /info on
 // both API versions.
 func BuildInfo() VikunjaInfos {
+	enabledProFeatures := license.EnabledProFeatures()
+	proFeatureNames := make([]string, 0, len(enabledProFeatures))
+	for _, feature := range enabledProFeatures {
+		proFeatureNames = append(proFeatureNames, feature.String())
+	}
+
 	info := VikunjaInfos{
 		Version:                 version.Version,
 		Commit:                  version.Commit,
@@ -123,12 +130,13 @@ func BuildInfo() VikunjaInfos {
 		AllowIconChanges:        config.ServiceAllowIconChanges.GetBool(),
 		ConcurrentWrites:        config.DatabaseType.GetString() != "sqlite",
 		LinkAttachmentProviders: linkattachments.GetAll(),
-		EnabledProFeatures:      license.EnabledProFeatures(),
+		EnabledProFeatures:      proFeatureNames,
 		AvailableMigrators: []string{
 			(&vikunja_file.FileMigrator{}).Name(),
 			(&ticktick.Migrator{}).Name(),
 			(&wekan.Migrator{}).Name(),
 			(&csvmigrator.Migrator{}).Name(),
+			(&planka.Migrator{}).Name(),
 		},
 		Legal: LegalInfo{
 			ImprintURL:       config.LegalImprintURL.GetString(),
