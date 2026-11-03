@@ -191,6 +191,34 @@ func TestSavedFilter_Delete(t *testing.T) {
 	})
 }
 
+// Added by mia·nube on 2026-11-03: deleting a saved filter also removes its
+// views and what hangs off them, and leaves another owner's filter alone.
+func TestSavedFilter_DeleteRemovesViews(t *testing.T) {
+	db.LoadAndAssertFixtures(t)
+	s := db.NewSession()
+	defer s.Close()
+
+	owner := &user.User{ID: 1}
+	other := &user.User{ID: 2}
+	sf, views := insertCustomisedSavedFilter(t, s, owner, "deleted")
+	controlFilter, controlViews := insertCustomisedSavedFilter(t, s, other, "control")
+
+	require.NoError(t, sf.Delete(s, owner))
+	require.NoError(t, s.Commit())
+
+	db.AssertMissing(t, "project_views", map[string]interface{}{"project_id": getProjectIDFromSavedFilterID(sf.ID)})
+	for _, v := range views {
+		for _, table := range []string{"buckets", "task_buckets", "task_positions"} {
+			db.AssertMissing(t, table, map[string]interface{}{"project_view_id": v.ID})
+		}
+	}
+	db.AssertExists(t, "saved_filters", map[string]interface{}{"id": controlFilter.ID}, false)
+	for _, v := range controlViews {
+		db.AssertExists(t, "project_views", map[string]interface{}{"id": v.ID, "title": "customised control"}, false)
+		db.AssertExists(t, "task_positions", map[string]interface{}{"project_view_id": v.ID, "position": 42}, false)
+	}
+}
+
 func TestSavedFilter_Permissions(t *testing.T) {
 	user1 := &user.User{ID: 1}
 	user2 := &user.User{ID: 2}

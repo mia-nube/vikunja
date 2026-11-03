@@ -304,9 +304,45 @@ func (sf *SavedFilter) Update(s *xorm.Session, _ web.Auth) error {
 // @Failure 500 {object} models.Message "Internal error"
 // @Router /filters/{id} [delete]
 func (sf *SavedFilter) Delete(s *xorm.Session, _ web.Auth) error {
-	_, err := s.
-		Where("id = ?", sf.ID).
-		Delete(sf)
+	return deleteSavedFilters(s, []int64{sf.ID})
+}
+
+// Modified by mia·nube on 2026-11-03: deleting a saved filter used to remove
+// only its saved_filters row. Creating a filter also creates project views for
+// its synthetic project (see Create), and those views carry user-authored
+// titles, filters and bucket configuration plus buckets, task-bucket rows and
+// task positions. deleteSavedFilters removes all of it; SavedFilter.Delete and
+// user deletion both use it.
+func deleteSavedFilters(s *xorm.Session, filterIDs []int64) (err error) {
+	if len(filterIDs) == 0 {
+		return nil
+	}
+
+	projectIDs := make([]int64, 0, len(filterIDs))
+	for _, id := range filterIDs {
+		if projectID := getProjectIDFromSavedFilterID(id); projectID < 0 {
+			projectIDs = append(projectIDs, projectID)
+		}
+	}
+
+	viewIDs := []int64{}
+	if len(projectIDs) > 0 {
+		if err = s.Table("project_views").In("project_id", projectIDs).Cols("id").Find(&viewIDs); err != nil {
+			return err
+		}
+	}
+	if len(viewIDs) > 0 {
+		for _, bean := range []any{&TaskBucket{}, &TaskPosition{}, &Bucket{}} {
+			if _, err = s.In("project_view_id", viewIDs).Delete(bean); err != nil {
+				return err
+			}
+		}
+		if _, err = s.In("id", viewIDs).Delete(&ProjectView{}); err != nil {
+			return err
+		}
+	}
+
+	_, err = s.In("id", filterIDs).Delete(&SavedFilter{})
 	return err
 }
 

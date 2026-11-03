@@ -45,7 +45,8 @@ import (
 // ErrUserOwnsSharedResources (nothing is reassigned). The user's residue on
 // data that is kept — sessions and auth tokens, comments, attachments and their
 // stored files, project memberships, link shares, created teams, labels,
-// webhooks, time entries, notifications, avatar and export files — is removed,
+// webhooks, time entries, notifications, avatar and export files, saved filters
+// with their views, buckets and task positions — is removed,
 // and a failed storage delete fails the deletion instead of being logged.
 
 // User deletion must happen here in this packaage because we want to delete everything associated to this user.
@@ -312,6 +313,15 @@ func deleteUserResidue(s *xorm.Session, u *user.User, plan *userDeletionPlan) (e
 		}
 	}
 
+	// Saved filters, with their views and everything hanging off those views.
+	filterIDs := []int64{}
+	if err = s.Table("saved_filters").Where("owner_id = ?", u.ID).Cols("id").Find(&filterIDs); err != nil {
+		return err
+	}
+	if err = deleteSavedFilters(s, filterIDs); err != nil {
+		return err
+	}
+
 	// Labels the user created, and their use on kept tasks.
 	labelIDs := []int64{}
 	if err = s.Table("labels").Where("created_by_id = ?", u.ID).Cols("id").Find(&labelIDs); err != nil {
@@ -432,7 +442,6 @@ func DeleteUser(s *xorm.Session, u *user.User) (err error) {
 		{"user_id", &TaskAssginee{}},
 		{"user_id", &Subscription{}},
 		{"user_id", &TeamMember{}},
-		{"owner_id", &SavedFilter{}},
 		{"user_id", &Reaction{}},
 		{"user_id", &Favorite{}},
 		{"owner_id", &APIToken{}},

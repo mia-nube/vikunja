@@ -59,6 +59,35 @@ func assertStoredFileAbsent(t *testing.T, fileID int64) {
 	assert.True(t, os.IsNotExist(err), "stored bytes of file %d must be gone, stat error: %v", fileID, err)
 }
 
+// insertCustomisedSavedFilter creates a saved filter through the normal create
+// path (which creates its views) and then customises every view: a renamed
+// title, an extra bucket, a task in that bucket and a task position.
+func insertCustomisedSavedFilter(t *testing.T, s *xorm.Session, owner *user.User, name string) (*SavedFilter, []*ProjectView) {
+	t.Helper()
+	sf := &SavedFilter{Title: "personal filter " + name, Filters: &TaskCollection{Filter: "done = false"}}
+	require.NoError(t, sf.Create(s, owner))
+
+	task := &Task{Title: "filtered task " + name, ProjectID: 1, CreatedByID: 1, Index: 9000 + owner.ID}
+	_, err := s.Insert(task)
+	require.NoError(t, err)
+
+	views := []*ProjectView{}
+	require.NoError(t, s.Where("project_id = ?", getProjectIDFromSavedFilterID(sf.ID)).Find(&views))
+	require.NotEmpty(t, views, "creating a saved filter creates its views")
+	for _, v := range views {
+		_, err = s.ID(v.ID).Cols("title").Update(&ProjectView{Title: "customised " + name})
+		require.NoError(t, err)
+		bucket := &Bucket{Title: "custom bucket " + name, ProjectViewID: v.ID}
+		_, err = s.Insert(bucket)
+		require.NoError(t, err)
+		_, err = s.Insert(&TaskBucket{TaskID: task.ID, BucketID: bucket.ID, ProjectViewID: v.ID})
+		require.NoError(t, err)
+		_, err = s.Insert(&TaskPosition{TaskID: task.ID, ProjectViewID: v.ID, Position: 42})
+		require.NoError(t, err)
+	}
+	return sf, views
+}
+
 func TestDeleteUserMiaNubeSharedData(t *testing.T) {
 	t.Run("deleting a mere member never moves ownership to them and keeps the control project", func(t *testing.T) {
 		db.LoadAndAssertFixtures(t)
@@ -249,6 +278,38 @@ func TestDeleteUserMiaNubeSharedData(t *testing.T) {
 		db.AssertExists(t, "teams", map[string]interface{}{"id": keptTeam.ID, "created_by_id": 0}, false)
 		db.AssertExists(t, "team_members", map[string]interface{}{"team_id": keptTeam.ID, "user_id": control.ID, "admin": true}, false)
 		db.AssertExists(t, "users", map[string]interface{}{"id": control.ID}, false)
+	})
+
+	t.Run("saved filters go with their views and what hangs off them; another user's filter stays", func(t *testing.T) {
+		db.LoadAndAssertFixtures(t)
+		s := db.NewSession()
+		defer s.Close()
+		notifications.Fake()
+
+		gone := insertDeletionTestUser(t, s, "filter-deleted")
+		control := insertDeletionTestUser(t, s, "filter-control")
+
+		goneFilter, goneViews := insertCustomisedSavedFilter(t, s, gone, "deleted")
+		controlFilter, controlViews := insertCustomisedSavedFilter(t, s, control, "control")
+
+		require.NoError(t, DeleteUser(s, gone))
+		require.NoError(t, s.Commit())
+
+		db.AssertMissing(t, "saved_filters", map[string]interface{}{"id": goneFilter.ID})
+		db.AssertMissing(t, "project_views", map[string]interface{}{"project_id": getProjectIDFromSavedFilterID(goneFilter.ID)})
+		for _, v := range goneViews {
+			for _, table := range []string{"buckets", "task_buckets", "task_positions"} {
+				db.AssertMissing(t, table, map[string]interface{}{"project_view_id": v.ID})
+			}
+		}
+
+		db.AssertExists(t, "saved_filters", map[string]interface{}{"id": controlFilter.ID, "owner_id": control.ID}, false)
+		for _, v := range controlViews {
+			db.AssertExists(t, "project_views", map[string]interface{}{"id": v.ID, "title": "customised control"}, false)
+			db.AssertExists(t, "buckets", map[string]interface{}{"project_view_id": v.ID, "title": "custom bucket control"}, false)
+			db.AssertExists(t, "task_buckets", map[string]interface{}{"project_view_id": v.ID}, false)
+			db.AssertExists(t, "task_positions", map[string]interface{}{"project_view_id": v.ID, "position": 42}, false)
+		}
 	})
 
 	t.Run("a storage-delete error fails the deletion", func(t *testing.T) {
