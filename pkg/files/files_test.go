@@ -183,6 +183,8 @@ func TestFile_Delete(t *testing.T) {
 		err := (&File{ID: 1}).Delete(s)
 		require.Error(t, err)
 		require.ErrorIs(t, err, os.ErrPermission)
+		// mia·nube 2026-11-17: the preview failures are reported next to the file's own.
+		assert.Contains(t, err.Error(), "preview of file 1")
 		_, statErr := FileStat(&File{ID: 1})
 		require.NoError(t, statErr, "the stored bytes must still be there")
 	})
@@ -205,6 +207,32 @@ func TestFile_Delete(t *testing.T) {
 		err := f.Delete(s)
 		require.Error(t, err, "a preview left in storage is the file's content surviving its deletion")
 		require.ErrorIs(t, err, os.ErrPermission)
+		_, _, err = f.OpenPreview(PreviewMedium)
+		require.NoError(t, err, "the preview must still be there")
+	})
+	// Added by mia·nube on 2026-11-17: the retry after a rolled-back deletion
+	// finds the file itself already gone; a preview that still cannot be
+	// removed must fail that retry too.
+	t.Run("preview remove failure propagates on the retry after a rollback", func(t *testing.T) {
+		initFixtures(t)
+		f := &File{ID: 1}
+		require.NoError(t, f.SavePreview(PreviewMedium, []byte("preview")))
+		useStorage(t, &previewRemoveFaultStorage{FileStorage: storage})
+
+		s := db.NewSession()
+		defer s.Close()
+		require.Error(t, f.Delete(s))
+		require.NoError(t, s.Rollback())
+		_, err := FileStat(f)
+		require.ErrorIs(t, err, fs.ErrNotExist, "the first attempt removed the file itself")
+
+		retry := db.NewSession()
+		defer retry.Close()
+		err = f.Delete(retry)
+		require.Error(t, err, "the preview is still stored, so the retry must not report an erasure")
+		require.ErrorIs(t, err, os.ErrPermission)
+		require.NoError(t, retry.Rollback())
+		db.AssertExists(t, "files", map[string]interface{}{"id": 1}, false)
 		_, _, err = f.OpenPreview(PreviewMedium)
 		require.NoError(t, err, "the preview must still be there")
 	})

@@ -245,13 +245,15 @@ func (f *File) removeBlob() error {
 		// so the caller's transaction rolls back instead of recording an
 		// erasure that did not happen. Upstream logged any *os.PathError
 		// (permission denied, I/O error, read-only filesystem …) and reported
-		// success.
+		// success. Neither branch may drop previewErr: on a retry the file is
+		// usually already gone while a preview, which is the file's content
+		// too, may still be stored.
 		if errors.Is(err, fs.ErrNotExist) {
 			log.Warningf("File %d was already absent from storage: %s", f.ID, err)
-			return nil
+			return previewErr
 		}
 
-		return fmt.Errorf("could not remove file %d from storage: %w", f.ID, err)
+		return errors.Join(fmt.Errorf("could not remove file %d from storage: %w", f.ID, err), previewErr)
 	}
 
 	return previewErr
