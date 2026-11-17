@@ -110,22 +110,30 @@ func (f *File) SavePreview(size PreviewSize, preview []byte) error {
 
 	// A Delete racing this write has already removed the previews.
 	if _, err := storage.Stat(f.fileID()); errors.Is(err, fs.ErrNotExist) {
-		f.removePreview(size)
+		_ = f.removePreview(size)
 		return ErrFileDoesNotExist{FileID: f.ID}
 	}
 	return nil
 }
 
-// removePreviews only logs failures: previews are derived data and must not fail what happens to their file.
-func (f *File) removePreviews() {
+// Modified by mia·nube on 2026-11-17: removePreviews returns the failures it
+// logs. A preview is a rendering of the user's file, so a preview that could
+// not be removed is the file's content surviving its deletion; removeBlob
+// reports it instead of counting the file as erased. A preview that is already
+// absent is not a failure.
+func (f *File) removePreviews() error {
+	var errs []error
 	for _, size := range StoredPreviewSizes {
-		f.removePreview(size)
+		errs = append(errs, f.removePreview(size))
 	}
+	return errors.Join(errs...)
 }
 
-func (f *File) removePreview(size PreviewSize) {
+func (f *File) removePreview(size PreviewSize) error {
 	err := storage.Remove(f.previewPath(size))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		log.Errorf("Could not remove the %s preview of file %d: %v", size, f.ID, err)
+		return fmt.Errorf("could not remove the %s preview of file %d: %w", size, f.ID, err)
 	}
+	return nil
 }

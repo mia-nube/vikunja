@@ -24,6 +24,8 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"os"
+	"strings"
 	"testing"
 
 	"code.vikunja.io/api/pkg/config"
@@ -169,6 +171,55 @@ func TestFile_Delete(t *testing.T) {
 		require.Error(t, err)
 		assert.True(t, IsErrFileDoesNotExist(err))
 	})
+	// Added by mia·nube on 2026-11-17: a failed storage delete must not be
+	// reported as an erasure; an object that is already gone still counts as
+	// deleted.
+	t.Run("storage remove failure propagates", func(t *testing.T) {
+		s := db.NewSession()
+		defer s.Close()
+		initFixtures(t)
+		FailRemoveForTest(t, &os.PathError{Op: "remove", Path: "1", Err: os.ErrPermission})
+
+		err := (&File{ID: 1}).Delete(s)
+		require.Error(t, err)
+		require.ErrorIs(t, err, os.ErrPermission)
+		_, statErr := FileStat(&File{ID: 1})
+		require.NoError(t, statErr, "the stored bytes must still be there")
+	})
+	t.Run("already absent from storage", func(t *testing.T) {
+		s := db.NewSession()
+		defer s.Close()
+		initFixtures(t)
+		require.NoError(t, storage.Remove((&File{ID: 1}).fileID()))
+
+		require.NoError(t, (&File{ID: 1}).Delete(s))
+	})
+	t.Run("preview remove failure propagates", func(t *testing.T) {
+		s := db.NewSession()
+		defer s.Close()
+		initFixtures(t)
+		f := &File{ID: 1}
+		require.NoError(t, f.SavePreview(PreviewMedium, []byte("preview")))
+		useStorage(t, &previewRemoveFaultStorage{FileStorage: storage})
+
+		err := f.Delete(s)
+		require.Error(t, err, "a preview left in storage is the file's content surviving its deletion")
+		require.ErrorIs(t, err, os.ErrPermission)
+		_, _, err = f.OpenPreview(PreviewMedium)
+		require.NoError(t, err, "the preview must still be there")
+	})
+}
+
+// previewRemoveFaultStorage fails Remove for previews only.
+type previewRemoveFaultStorage struct {
+	FileStorage
+}
+
+func (p *previewRemoveFaultStorage) Remove(name string) error {
+	if strings.HasPrefix(name, previewDir+"/") {
+		return &os.PathError{Op: "remove", Path: name, Err: os.ErrPermission}
+	}
+	return p.FileStorage.Remove(name)
 }
 
 func TestFile_DeleteOnCommit(t *testing.T) {

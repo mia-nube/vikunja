@@ -22,7 +22,6 @@ import (
 	"io"
 	"io/fs"
 	"math"
-	"os"
 	"strconv"
 	"time"
 
@@ -237,19 +236,25 @@ func (f *File) deleteRow(s *xorm.Session) error {
 func (f *File) removeBlob() error {
 	err := storage.Remove(f.fileID())
 	// After the file, so SavePreview catches a preview stored in between.
-	f.removePreviews()
+	previewErr := f.removePreviews()
 	if err != nil {
-		var perr *os.PathError
-		if errors.As(err, &perr) {
-			// Don't fail when removing the file failed
-			log.Errorf("Error deleting file %d: %s", f.ID, err)
+		// Modified by mia·nube on 2026-11-17: an object that is already gone is
+		// the state deletion asks for, so a retry after a rolled-back
+		// transaction (row restored, bytes already removed) still succeeds.
+		// Every other failure means the bytes may still be stored: report it,
+		// so the caller's transaction rolls back instead of recording an
+		// erasure that did not happen. Upstream logged any *os.PathError
+		// (permission denied, I/O error, read-only filesystem …) and reported
+		// success.
+		if errors.Is(err, fs.ErrNotExist) {
+			log.Warningf("File %d was already absent from storage: %s", f.ID, err)
 			return nil
 		}
 
-		return err
+		return fmt.Errorf("could not remove file %d from storage: %w", f.ID, err)
 	}
 
-	return nil
+	return previewErr
 }
 
 // Save saves a file to storage
